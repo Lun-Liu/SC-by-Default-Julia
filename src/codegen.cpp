@@ -588,7 +588,7 @@ static CallInst *emit_jlcall(jl_codectx_t &ctx, Value *theFptr, Value *theF,
 static Value *literal_pointer_val(jl_codectx_t &ctx, jl_value_t *p);
 static GlobalVariable *prepare_global_in(Module *M, GlobalVariable *G);
 #define prepare_global(G) prepare_global_in(jl_Module, (G))
-static Instruction *tbaa_decorate(MDNode *md, Instruction *load_or_store);
+static Instruction *tbaa_decorate(IRBuilder<> &irbuilder, MDNode *md, Instruction *load_or_store);
 
 // --- convenience functions for tagging llvm values with julia types ---
 
@@ -620,7 +620,7 @@ static void undef_derived_strct(IRBuilder<> &irbuilder, Value *ptr, jl_datatype_
     Value *V_null = ConstantPointerNull::get(cast<PointerType>(T_prjlvalue));
     for (i = 0; i < np; i++) {
         Value *fld = irbuilder.CreateConstInBoundsGEP1_32(T_prjlvalue, ptr, jl_ptr_offset(sty, i));
-        tbaa_decorate(tbaa, irbuilder.CreateStore(V_null, fld));
+        tbaa_decorate(irbuilder, tbaa, irbuilder.CreateStore(V_null, fld));
     }
 }
 
@@ -2245,7 +2245,7 @@ static jl_cgval_t emit_globalref(jl_codectx_t &ctx, jl_module_t *mod, jl_sym_t *
         if (bnd->constp) {
             return mark_julia_const(bnd->value);
         }
-        return mark_julia_type(ctx, tbaa_decorate(tbaa_binding, ctx.builder.CreateLoad(bp)), true, (jl_value_t*)jl_any_type);
+        return mark_julia_type(ctx, tbaa_decorate(ctx.builder, tbaa_binding, ctx.builder.CreateLoad(bp)), true, (jl_value_t*)jl_any_type);
     }
     // todo: use type info to avoid undef check
     return emit_checked_var(ctx, bp, name, false, tbaa_binding);
@@ -2718,7 +2718,7 @@ static bool emit_builtin_call(jl_codectx_t &ctx, jl_cgval_t *ret, jl_value_t *f,
                     ptindex = emit_bitcast(ctx, ptindex, T_pint8);
                     ptindex = ctx.builder.CreateInBoundsGEP(T_int8, ptindex, offset);
                     ptindex = ctx.builder.CreateInBoundsGEP(T_int8, ptindex, idx);
-                    Instruction *tindex = tbaa_decorate(tbaa_arrayselbyte, ctx.builder.CreateLoad(T_int8, ptindex));
+                    Instruction *tindex = tbaa_decorate(ctx.builder, tbaa_arrayselbyte, ctx.builder.CreateLoad(T_int8, ptindex));
                     tindex->setMetadata(LLVMContext::MD_range, MDNode::get(jl_LLVMContext, {
                         ConstantAsMetadata::get(ConstantInt::get(T_int8, 0)),
                         ConstantAsMetadata::get(ConstantInt::get(T_int8, union_max)) }));
@@ -2788,7 +2788,7 @@ static bool emit_builtin_call(jl_codectx_t &ctx, jl_cgval_t *ret, jl_value_t *f,
                                         ctx.builder.CreateConstGEP1_32(T_prjlvalue,
                                             emit_bitcast(ctx, decay_derived(aryv), T_pprjlvalue),
                                             jl_array_data_owner_offset(nd) / sizeof(jl_value_t*)));
-                                tbaa_decorate(tbaa_const, maybe_mark_load_dereferenceable(own_ptr, false, (jl_value_t*)jl_array_any_type));
+                                tbaa_decorate(ctx.builder, tbaa_const, maybe_mark_load_dereferenceable(own_ptr, false, (jl_value_t*)jl_array_any_type));
                             }
                             else {
                                 own_ptr = ctx.builder.CreateCall(
@@ -2818,7 +2818,7 @@ static bool emit_builtin_call(jl_codectx_t &ctx, jl_cgval_t *ret, jl_value_t *f,
                             ptindex = emit_bitcast(ctx, ptindex, T_pint8);
                             ptindex = ctx.builder.CreateInBoundsGEP(T_int8, ptindex, offset);
                             ptindex = ctx.builder.CreateInBoundsGEP(T_int8, ptindex, idx);
-                            tbaa_decorate(tbaa_arrayselbyte, ctx.builder.CreateStore(tindex, ptindex));
+                            tbaa_decorate(ctx.builder, tbaa_arrayselbyte, ctx.builder.CreateStore(tindex, ptindex));
                             if (jl_is_datatype(val.typ) && jl_datatype_size(val.typ) == 0) {
                                 // no-op
                             }
@@ -2866,7 +2866,7 @@ static bool emit_builtin_call(jl_codectx_t &ctx, jl_cgval_t *ret, jl_value_t *f,
                         idx = ctx.builder.CreateAdd(idx, ConstantInt::get(T_size, ctx.nReqArgs));
                         Instruction *v = ctx.builder.CreateLoad(T_prjlvalue, ctx.builder.CreateInBoundsGEP(ctx.argArray, idx));
                         // if we know the result type of this load, we will mark that information here too
-                        tbaa_decorate(tbaa_value, maybe_mark_load_dereferenceable(v, false, rt));
+                        tbaa_decorate(ctx.builder, tbaa_value, maybe_mark_load_dereferenceable(v, false, rt));
                         *ret = mark_julia_type(ctx, v, /*boxed*/ true, rt);
                         return true;
                     }
@@ -3007,7 +3007,7 @@ static bool emit_builtin_call(jl_codectx_t &ctx, jl_cgval_t *ret, jl_value_t *f,
                 jl_value_t *boundscheck = (nargs == 3 ? argv[3].constant : jl_true);
                 emit_bounds_check(ctx, typ, (jl_value_t*)jl_datatype_type, idx, types_len, boundscheck);
                 Value *fieldtyp_p = ctx.builder.CreateInBoundsGEP(T_prjlvalue, decay_derived(emit_bitcast(ctx, types_svec, T_pprjlvalue)), idx);
-                Value *fieldtyp = tbaa_decorate(tbaa_const, ctx.builder.CreateLoad(T_prjlvalue, fieldtyp_p));
+                Value *fieldtyp = tbaa_decorate(ctx.builder, tbaa_const, ctx.builder.CreateLoad(T_prjlvalue, fieldtyp_p));
                 *ret = mark_julia_type(ctx, fieldtyp, true, (jl_value_t*)jl_type_type);
                 return true;
             }
@@ -3021,7 +3021,7 @@ static bool emit_builtin_call(jl_codectx_t &ctx, jl_cgval_t *ret, jl_value_t *f,
         if (sty == jl_string_type || sty == jl_simplevector_type) {
             // String and SimpleVector's length fields have the same layout
             auto ptr = emit_bitcast(ctx, boxed(ctx, obj), T_psize);
-            Value *len = tbaa_decorate(tbaa_mutab, ctx.builder.CreateLoad(T_size, ptr));
+            Value *len = tbaa_decorate(ctx.builder, tbaa_mutab, ctx.builder.CreateLoad(T_size, ptr));
             if (sty == jl_simplevector_type) {
                 len = ctx.builder.CreateMul(len, ConstantInt::get(T_size, sizeof(void*)));
                 len = ctx.builder.CreateAdd(len, ConstantInt::get(T_size, sizeof(void*)));
@@ -3125,7 +3125,7 @@ static bool emit_builtin_call(jl_codectx_t &ctx, jl_cgval_t *ret, jl_value_t *f,
                 Value *addr = ctx.builder.CreateConstInBoundsGEP1_32(T_prjlvalue, ptr, offs);
                 // emit this using the same type as emit_getfield_knownidx
                 // so that LLVM may be able to load-load forward them and fold the result
-                fldv = tbaa_decorate(obj.tbaa, ctx.builder.CreateLoad(T_prjlvalue, addr));
+                fldv = tbaa_decorate(ctx.builder, obj.tbaa, ctx.builder.CreateLoad(T_prjlvalue, addr));
             }
             else {
                 fldv = ctx.builder.CreateExtractValue(obj.V, offs);
@@ -3470,7 +3470,7 @@ static jl_cgval_t emit_checked_var(jl_codectx_t &ctx, Value *bp, jl_sym_t *name,
     if (isvol)
         v->setVolatile(true);
     if (tbaa)
-        tbaa_decorate(tbaa, v);
+        tbaa_decorate(ctx.builder, tbaa, v);
     undef_var_error_ifnot(ctx, ctx.builder.CreateIsNotNull(v), name);
     return mark_julia_type(ctx, v, true, jl_any_type);
 }
@@ -3488,7 +3488,7 @@ static jl_cgval_t emit_sparam(jl_codectx_t &ctx, size_t i)
             T_prjlvalue,
             ctx.spvals_ptr,
             i + sizeof(jl_svec_t) / sizeof(jl_value_t*));
-    Value *sp = tbaa_decorate(tbaa_const, ctx.builder.CreateLoad(T_prjlvalue, bp));
+    Value *sp = tbaa_decorate(ctx.builder, tbaa_const, ctx.builder.CreateLoad(T_prjlvalue, bp));
     Value *isnull = ctx.builder.CreateICmpNE(emit_typeof(ctx, sp),
             maybe_decay_untracked(literal_pointer_val(ctx, (jl_value_t*)jl_tvar_type)));
     jl_unionall_t *sparam = (jl_unionall_t*)ctx.linfo->def.method->sig;
@@ -3511,7 +3511,7 @@ static jl_cgval_t emit_global(jl_codectx_t &ctx, jl_sym_t *sym)
         // double-check that a global variable is actually defined. this
         // can be a problem in parallel when a definition is missing on
         // one machine.
-        return mark_julia_type(ctx, tbaa_decorate(tbaa_binding, ctx.builder.CreateLoad(T_prjlvalue, bp)), true, jl_any_type);
+        return mark_julia_type(ctx, tbaa_decorate(ctx.builder, tbaa_binding, ctx.builder.CreateLoad(T_prjlvalue, bp)), true, jl_any_type);
     }
     return emit_checked_var(ctx, bp, sym, false, tbaa_binding);
 }
@@ -3559,7 +3559,7 @@ static jl_cgval_t emit_isdefined(jl_codectx_t &ctx, jl_value_t *sym)
                 T_prjlvalue,
                 ctx.spvals_ptr,
                 i + sizeof(jl_svec_t) / sizeof(jl_value_t*));
-        Value *sp = tbaa_decorate(tbaa_const, ctx.builder.CreateLoad(T_prjlvalue, bp));
+        Value *sp = tbaa_decorate(ctx.builder, tbaa_const, ctx.builder.CreateLoad(T_prjlvalue, bp));
         isnull = ctx.builder.CreateICmpNE(emit_typeof(ctx, sp),
             maybe_decay_untracked(literal_pointer_val(ctx, (jl_value_t*)jl_tvar_type)));
     }
@@ -3581,7 +3581,7 @@ static jl_cgval_t emit_isdefined(jl_codectx_t &ctx, jl_value_t *sym)
                 return mark_julia_const(jl_true);
             Value *bp = julia_binding_gv(ctx, bnd);
             Instruction *v = ctx.builder.CreateLoad(T_prjlvalue, bp);
-            tbaa_decorate(tbaa_binding, v);
+            tbaa_decorate(ctx.builder, tbaa_binding, v);
             isnull = ctx.builder.CreateICmpNE(v, maybe_decay_untracked(V_null));
         }
         else {
@@ -3709,7 +3709,7 @@ static void emit_vi_assignment_unboxed(jl_codectx_t &ctx, jl_varinfo_t &vi, Valu
                     Type *dest_ty = store_ty->getPointerTo();
                     if (dest_ty != dest->getType())
                         dest = emit_bitcast(ctx, dest, dest_ty);
-                    tbaa_decorate(tbaa_stack, ctx.builder.CreateStore(
+                    tbaa_decorate(ctx.builder, tbaa_stack, ctx.builder.CreateStore(
                                       emit_unbox(ctx, store_ty, rval_info, rval_info.typ),
                                       dest,
                                       vi.isVolatile));
@@ -4605,7 +4605,7 @@ static Function* gen_cfun_wrapper(
     // TODO: in the future, try to initialize a full TLS context here
     // for now, just use a dummy field to avoid a branch in this function
     ctx.world_age_field = ctx.builder.CreateSelect(have_tls, ctx.world_age_field, dummy_world);
-    Value *last_age = tbaa_decorate(tbaa_gcframe, ctx.builder.CreateLoad(ctx.world_age_field));
+    Value *last_age = tbaa_decorate(ctx.builder, tbaa_gcframe, ctx.builder.CreateLoad(ctx.world_age_field));
     Value *valid_tls = ctx.builder.CreateIsNotNull(last_age);
     have_tls = ctx.builder.CreateAnd(have_tls, valid_tls);
     ctx.world_age_field = ctx.builder.CreateSelect(valid_tls, ctx.world_age_field, dummy_world);
@@ -5140,14 +5140,14 @@ static jl_cgval_t emit_cfunction(jl_codectx_t &ctx, jl_value_t *output_type, con
                                          literal_pointer_val(ctx, (jl_value_t*)output_type));
             Value *derived_strct = emit_bitcast(ctx, decay_derived(strct), T_psize);
             MDNode *tbaa = best_tbaa(output_type);
-            tbaa_decorate(tbaa, ctx.builder.CreateStore(F, derived_strct));
-            tbaa_decorate(tbaa, ctx.builder.CreateStore(
+            tbaa_decorate(ctx.builder, tbaa, ctx.builder.CreateStore(F, derived_strct));
+            tbaa_decorate(ctx.builder, tbaa, ctx.builder.CreateStore(
                 ctx.builder.CreatePtrToInt(literal_pointer_val(ctx, fexpr_rt.constant), T_size),
                 ctx.builder.CreateConstGEP1_32(T_size, derived_strct, 1)));
             Value *zero = ConstantInt::get(T_size, 0);
-            tbaa_decorate(tbaa, ctx.builder.CreateStore(zero,
+            tbaa_decorate(ctx.builder, tbaa, ctx.builder.CreateStore(zero,
                     ctx.builder.CreateConstGEP1_32(T_size, derived_strct, 2)));
-            tbaa_decorate(tbaa, ctx.builder.CreateStore(zero,
+            tbaa_decorate(ctx.builder, tbaa, ctx.builder.CreateStore(zero,
                     ctx.builder.CreateConstGEP1_32(T_size, derived_strct, 3)));
             F = strct;
         }
@@ -5956,7 +5956,7 @@ static std::unique_ptr<Module> emit_function(
     Value *last_age = NULL;
     if (toplevel) {
         emit_last_age_field(ctx);
-        last_age = tbaa_decorate(tbaa_gcframe, ctx.builder.CreateLoad(ctx.world_age_field));
+        last_age = tbaa_decorate(ctx.builder, tbaa_gcframe, ctx.builder.CreateLoad(ctx.world_age_field));
     }
 
     // step 8. allocate local variables slots

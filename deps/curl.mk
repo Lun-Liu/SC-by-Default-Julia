@@ -14,7 +14,7 @@ CURL_LDFLAGS := $(RPATH_ESCAPED_ORIGIN)
 # On older Linuces (those that use OpenSSL < 1.1) we include `libpthread` explicitly.
 # It doesn't hurt to include it explicitly elsewhere, so we do so.
 ifeq ($(OS),Linux)
-CURL_LDFLAGS += -lpthread
+CURL_LDFLAGS += -lpthread -latomic
 endif
 
 $(SRCCACHE)/curl-$(CURL_VER).tar.bz2: | $(SRCCACHE)

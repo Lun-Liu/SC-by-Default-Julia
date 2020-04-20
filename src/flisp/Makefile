@@ -36,7 +36,7 @@ LIBFILES_release := $(LLT_release) $(LIBUV) $(LIBUTF8PROC)
 LIBFILES_debug := $(LLT_debug) $(LIBUV) $(LIBUTF8PROC)
 LIBS :=
 ifneq ($(OS),WINNT)
-LIBS += -lpthread
+LIBS += -lpthread -latomic
 endif
 
 FLAGS := -I$(LLTSRCDIR) $(JCFLAGS) $(HFILEDIRS:%=-I%) \

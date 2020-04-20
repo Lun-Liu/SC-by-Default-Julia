@@ -341,7 +341,7 @@ static Value *emit_unbox(jl_codectx_t &ctx, Type *to, const jl_cgval_t &x, jl_va
         Type *dest_ty = unboxed->getType()->getPointerTo();
         if (dest->getType() != dest_ty)
             dest = emit_bitcast(ctx, dest, dest_ty);
-        tbaa_decorate(tbaa_dest, ctx.builder.CreateAlignedStore(unboxed, dest, julia_alignment(jt)));
+        tbaa_decorate(ctx.builder, tbaa_dest, ctx.builder.CreateAlignedStore(unboxed, dest, julia_alignment(jt)));
         return NULL;
     }
 
@@ -349,7 +349,7 @@ static Value *emit_unbox(jl_codectx_t &ctx, Type *to, const jl_cgval_t &x, jl_va
     Value *p = x.constant ? literal_pointer_val(ctx, x.constant) : x.V;
 
     if (jt == (jl_value_t*)jl_bool_type || to == T_int1) {
-        Instruction *unbox_load = tbaa_decorate(x.tbaa, ctx.builder.CreateLoad(T_int8, maybe_bitcast(ctx, p, T_pint8)));
+        Instruction *unbox_load = tbaa_decorate(ctx.builder, x.tbaa, ctx.builder.CreateLoad(T_int8, maybe_bitcast(ctx, p, T_pint8)));
         if (jt == (jl_value_t*)jl_bool_type)
             unbox_load->setMetadata(LLVMContext::MD_range, MDNode::get(jl_LLVMContext, {
                 ConstantAsMetadata::get(ConstantInt::get(T_int8, 0)),
@@ -364,7 +364,7 @@ static Value *emit_unbox(jl_codectx_t &ctx, Type *to, const jl_cgval_t &x, jl_va
         Type *dest_ty = unboxed->getType()->getPointerTo();
         if (dest->getType() != dest_ty)
             dest = emit_bitcast(ctx, dest, dest_ty);
-        tbaa_decorate(tbaa_dest, ctx.builder.CreateStore(unboxed, dest));
+        tbaa_decorate(ctx.builder, tbaa_dest, ctx.builder.CreateStore(unboxed, dest));
         return NULL;
     }
 
@@ -388,12 +388,12 @@ static Value *emit_unbox(jl_codectx_t &ctx, Type *to, const jl_cgval_t &x, jl_va
                     (to->isFloatingPointTy() || to->isIntegerTy() || to->isPointerTy()) &&
                     DL.getTypeSizeInBits(AllocType) == DL.getTypeSizeInBits(to)) {
                 Instruction *load = ctx.builder.CreateAlignedLoad(p, alignment);
-                return emit_unboxed_coercion(ctx, to, tbaa_decorate(x.tbaa, load));
+                return emit_unboxed_coercion(ctx, to, tbaa_decorate(ctx.builder, x.tbaa, load));
             }
         }
         p = maybe_bitcast(ctx, p, ptype);
         Instruction *load = ctx.builder.CreateAlignedLoad(p, alignment);
-        return tbaa_decorate(x.tbaa, load);
+        return tbaa_decorate(ctx.builder, x.tbaa, load);
     }
 }
 
@@ -476,7 +476,7 @@ static jl_cgval_t generic_bitcast(jl_codectx_t &ctx, const jl_cgval_t *argv)
         // but if the v.typ is not well known, use llvmt
         if (isboxed)
             vxt = llvmt;
-        vx = tbaa_decorate(v.tbaa, ctx.builder.CreateLoad(
+        vx = tbaa_decorate(ctx.builder, v.tbaa, ctx.builder.CreateLoad(
                     emit_bitcast(ctx, data_pointer(ctx, v),
                         vxt == T_int1 ? T_pint8 : vxt->getPointerTo())));
     }
@@ -656,7 +656,7 @@ static jl_cgval_t emit_pointerset(jl_codectx_t &ctx, jl_cgval_t *argv)
         Instruction *store = ctx.builder.CreateAlignedStore(
           ctx.builder.CreatePtrToInt(emit_pointer_from_objref(ctx, boxed(ctx, x)), T_size),
             ctx.builder.CreateGEP(T_size, thePtr, im1), align_nb);
-        tbaa_decorate(tbaa_data, store);
+        tbaa_decorate(ctx.builder, tbaa_data, store);
     }
     else if (!jl_isbits(ety)) {
         if (!jl_is_structtype(ety) || jl_is_array_type(ety) || !jl_is_concrete_type(ety)) {
