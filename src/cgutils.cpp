@@ -7,19 +7,17 @@ static Instruction *tbaa_decorate(IRBuilder<> &irbuilder, MDNode *md, Instructio
     load_or_store->setMetadata(llvm::LLVMContext::MD_tbaa, md);
     if (isa<LoadInst>(load_or_store) && md == tbaa_const)
         load_or_store->setMetadata(LLVMContext::MD_invariant_load, MDNode::get(md->getContext(), None));
-    //if (md != tbaa_stack && md != tbaa_binding && md != tbaa_immut 
-    //    && md != tbaa_unionselbyte && md != tbaa_arraysize 
-    //    && md != tbaa_arraylen && md != tbaa_arrayflags 
-    //    && md != tbaa_arrayoffset && md != tbaa_arrayselbyte && md != tbaa_const) {
     if (md == tbaa_root || md == tbaa_data || md == tbaa_value || md == tbaa_mutab 
             || md == tbaa_ptrarraybuf || md == tbaa_arraybuf) {
-    //if (md == tbaa_arraybuf) {
         if (isa<LoadInst>(load_or_store)) {
             LoadInst *LI = dyn_cast<LoadInst>(load_or_store);
             PointerType *PTy = dyn_cast<PointerType>(LI->getOperand(0)->getType());
             Type *ElTy = PTy->getElementType();
-            if (LI->getAlignment() == 0 ||    
-                (!ElTy->isIntegerTy() && !ElTy->isPointerTy() && !ElTy->isFloatingPointTy())) {
+            const DataLayout &DL = jl_data_layout;
+            unsigned Size = DL.getTypeSizeInBits(ElTy);
+            if (LI->getAlignment() == 0
+                || (!ElTy->isIntegerTy() && !ElTy->isPointerTy() && !ElTy->isFloatingPointTy())
+                || (Size < 8 || (Size & (Size - 1)))) {
                 irbuilder.CreateFence(AtomicOrdering::Acquire);
             }
             else
@@ -28,8 +26,11 @@ static Instruction *tbaa_decorate(IRBuilder<> &irbuilder, MDNode *md, Instructio
             StoreInst *SI = dyn_cast<StoreInst>(load_or_store);
             PointerType *PTy = dyn_cast<PointerType>(SI->getOperand(1)->getType());
             Type *ElTy = PTy->getElementType();
-            if (SI->getAlignment() == 0 ||
-                (!ElTy->isIntegerTy() && !ElTy->isPointerTy() && !ElTy->isFloatingPointTy())) {
+            const DataLayout &DL = jl_data_layout;
+            unsigned Size = DL.getTypeSizeInBits(ElTy);
+            if (SI->getAlignment() == 0 
+                || (!ElTy->isIntegerTy() && !ElTy->isPointerTy() && !ElTy->isFloatingPointTy())
+                || (Size < 8 || (Size & (Size - 1)))) {
                 FenceInst *release = new FenceInst(irbuilder.getContext(), AtomicOrdering::Release, SyncScope::System);
                 release->insertBefore(load_or_store);
                 irbuilder.CreateFence(AtomicOrdering::SequentiallyConsistent);
@@ -37,15 +38,6 @@ static Instruction *tbaa_decorate(IRBuilder<> &irbuilder, MDNode *md, Instructio
                 SI->setOrdering(AtomicOrdering::SequentiallyConsistent);
             }
         }
-        //if (isa<LoadInst>(load_or_store)) {
-        //    irbuilder.CreateFence(AtomicOrdering::Acquire);
-        //} else if (isa<StoreInst>(load_or_store)){
-        //    //FenceInst *release = new FenceInst(irbuilder.getContext(), AtomicOrdering::Release, SyncScope::System);
-        //    //release->insertBefore(load_or_store);
-        //    //irbuilder.CreateFence(AtomicOrdering::SequentiallyConsistent);
-        //} else {
-        //    assert(false);
-        //}
     }
     return load_or_store;
 }
