@@ -197,6 +197,7 @@ Pass *createCombineMulAddPass();
 Pass *createFinalLowerGCPass();
 Pass *createLateLowerGCFramePass();
 Pass *createLowerExcHandlersPass();
+Pass *createSCPass();
 Pass *createGCInvariantVerifierPass(bool Strong);
 Pass *createPropagateJuliaAddrspaces();
 Pass *createMultiVersioningPass();

@@ -9,35 +9,35 @@ static Instruction *tbaa_decorate(IRBuilder<> &irbuilder, MDNode *md, Instructio
         load_or_store->setMetadata(LLVMContext::MD_invariant_load, MDNode::get(md->getContext(), None));
     if (md == tbaa_root || md == tbaa_data || md == tbaa_value || md == tbaa_mutab 
             || md == tbaa_ptrarraybuf || md == tbaa_arraybuf) {
-        if (isa<LoadInst>(load_or_store)) {
-            LoadInst *LI = dyn_cast<LoadInst>(load_or_store);
-            PointerType *PTy = dyn_cast<PointerType>(LI->getOperand(0)->getType());
-            Type *ElTy = PTy->getElementType();
-            const DataLayout &DL = jl_data_layout;
-            unsigned Size = DL.getTypeSizeInBits(ElTy);
-            if (LI->getAlignment() == 0
-                || (!ElTy->isIntegerTy() && !ElTy->isPointerTy() && !ElTy->isFloatingPointTy())
-                || (Size < 8 || (Size & (Size - 1)))) {
-                irbuilder.CreateFence(AtomicOrdering::Acquire);
-            }
-            else
-                LI->setOrdering(AtomicOrdering::SequentiallyConsistent);
-        } else if (isa<StoreInst>(load_or_store)) {
-            StoreInst *SI = dyn_cast<StoreInst>(load_or_store);
-            PointerType *PTy = dyn_cast<PointerType>(SI->getOperand(1)->getType());
-            Type *ElTy = PTy->getElementType();
-            const DataLayout &DL = jl_data_layout;
-            unsigned Size = DL.getTypeSizeInBits(ElTy);
-            if (SI->getAlignment() == 0 
-                || (!ElTy->isIntegerTy() && !ElTy->isPointerTy() && !ElTy->isFloatingPointTy())
-                || (Size < 8 || (Size & (Size - 1)))) {
-                FenceInst *release = new FenceInst(irbuilder.getContext(), AtomicOrdering::Release, SyncScope::System);
-                release->insertBefore(load_or_store);
-                irbuilder.CreateFence(AtomicOrdering::SequentiallyConsistent);
-            } else {
-                SI->setOrdering(AtomicOrdering::SequentiallyConsistent);
-            }
-        }
+        //if (isa<LoadInst>(load_or_store)) {
+        //    LoadInst *LI = dyn_cast<LoadInst>(load_or_store);
+        //    PointerType *PTy = dyn_cast<PointerType>(LI->getOperand(0)->getType());
+        //    Type *ElTy = PTy->getElementType();
+        //    const DataLayout &DL = jl_data_layout;
+        //    unsigned Size = DL.getTypeSizeInBits(ElTy);
+        //    if (LI->getAlignment() == 0
+        //        || (!ElTy->isIntegerTy() && !ElTy->isPointerTy() && !ElTy->isFloatingPointTy())
+        //        || (Size < 8 || (Size & (Size - 1)))) {
+        //        irbuilder.CreateFence(AtomicOrdering::Acquire);
+        //    }
+        //    else
+        //        LI->setOrdering(AtomicOrdering::SequentiallyConsistent);
+        //} else if (isa<StoreInst>(load_or_store)) {
+        //    StoreInst *SI = dyn_cast<StoreInst>(load_or_store);
+        //    PointerType *PTy = dyn_cast<PointerType>(SI->getOperand(1)->getType());
+        //    Type *ElTy = PTy->getElementType();
+        //    const DataLayout &DL = jl_data_layout;
+        //    unsigned Size = DL.getTypeSizeInBits(ElTy);
+        //    if (SI->getAlignment() == 0 
+        //        || (!ElTy->isIntegerTy() && !ElTy->isPointerTy() && !ElTy->isFloatingPointTy())
+        //        || (Size < 8 || (Size & (Size - 1)))) {
+        //        FenceInst *release = new FenceInst(irbuilder.getContext(), AtomicOrdering::Release, SyncScope::System);
+        //        release->insertBefore(load_or_store);
+        //        irbuilder.CreateFence(AtomicOrdering::SequentiallyConsistent);
+        //    } else {
+        //        SI->setOrdering(AtomicOrdering::SequentiallyConsistent);
+        //    }
+        //}
     }
     return load_or_store;
 }

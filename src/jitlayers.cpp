@@ -124,6 +124,7 @@ void addOptimizationPasses(legacy::PassManagerBase *PM, int opt_level,
 #if defined(JL_MSAN_ENABLED)
     PM->add(llvm::createMemorySanitizerPass(true));
 #endif
+    PM->add(createSCPass());
     if (opt_level < 2) {
         PM->add(createCFGSimplificationPass()); // Clean up disgusting code
         if (opt_level == 1) {
