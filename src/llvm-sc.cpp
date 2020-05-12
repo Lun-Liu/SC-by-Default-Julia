@@ -1,3 +1,4 @@
+#include <llvm/Analysis/LoopPass.h>
 #include <llvm/IR/DataLayout.h>
 #include <llvm/IR/Function.h>
 #include <llvm/IR/Instructions.h>
@@ -5,6 +6,8 @@
 #include <llvm/Pass.h>
 
 #include <llvm/IR/LegacyPassManager.h>
+
+#include <set>
 
 #include "llvm-version.h"
 #include "codegen_shared.h"
@@ -37,8 +40,50 @@ struct SC : public FunctionPass {
 
     bool runOnFunction(Function &F) override {
         bool changed = false;
+        std::set<BasicBlock *> BBs;
         for (auto &BB : F.getBasicBlockList()) {
-            for (auto &I : BB.getInstList()) {
+            BBs.insert(&BB);
+        }   
+        Function *loopinfo_marker = F.getParent()->getFunction("julia.loopinfo_marker");
+        if (loopinfo_marker) {
+             for (User *U : loopinfo_marker->users()) {
+                Instruction *I = cast<Instruction>(U);
+                if (I->getParent()->getParent() != &F)
+                    continue;
+                LoopInfo &LI = getAnalysis<LoopInfoWrapperPass>().getLoopInfo();
+                Loop *L = LI.getLoopFor(I->getParent());
+
+                bool skip_sc = false;
+                // Walk `julia.loopinfo` metadata and filter out `julia.simdloop` and `julia.ivdep`
+                if (I->hasMetadataOtherThanDebugLoc()) {
+                    MDNode *JLMD= I->getMetadata("julia.loopinfo");
+                    if (JLMD) {
+                        LLVM_DEBUG(dbgs() << "LSL: has julia.loopinfo metadata with " << JLMD->getNumOperands() <<" operands\n");
+                        for (unsigned i = 0, ie = JLMD->getNumOperands(); i < ie; ++i) {
+                            Metadata *Op = JLMD->getOperand(i);
+                            const MDString *S = dyn_cast<MDString>(Op);
+                            if (S) {
+                                LLVM_DEBUG(dbgs() << "LSL: found " << S->getString() << "\n");
+                                if (S->getString().startswith("julia")) {
+                                    if (S->getString().equals("julia.simdloop"))
+                                        skip_sc = true;
+                                    continue;
+                                }
+                            }
+                        }
+                    }
+                }
+
+                if (skip_sc) {
+                    for (BasicBlock *BB : L->blocks()) {
+                        BBs.erase(BB);
+                    }
+                }
+             }
+        }
+
+        for (auto *BB : BBs) {
+            for (auto &I : BB->getInstList()) {
                 if (!isa<LoadInst>(I) && !isa<StoreInst>(I))
                     continue;
                 if (I.getMetadata(LLVMContext::MD_invariant_load))
@@ -95,9 +140,12 @@ struct SC : public FunctionPass {
       return StringRef("SC");
     }
 
-//    void getAnalysisUsage(AnalysisUsage &AU) const override{
-//        AU.addRequired<PromoteLegacyPass>();
-//    }
+    void getAnalysisUsage(AnalysisUsage &AU) const override{
+        FunctionPass::getAnalysisUsage(AU);
+        AU.addRequired<LoopInfoWrapperPass>();
+        AU.addPreserved<LoopInfoWrapperPass>();
+        AU.setPreservesCFG();
+    }
 };
 
 char SC::ID = 0;
