@@ -972,6 +972,7 @@ export
     @inbounds,
     @fastmath,
     @simd,
+    @nosc,
     @inline,
     @noinline,
     @nospecialize,

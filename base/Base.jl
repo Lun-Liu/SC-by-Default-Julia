@@ -130,6 +130,10 @@ include("arraymath.jl")
 include("simdloop.jl")
 using .SimdLoop
 
+# SC loops
+include("scloop.jl")
+using .NoSCLoop
+
 # map-reduce operators
 include("reduce.jl")
 
