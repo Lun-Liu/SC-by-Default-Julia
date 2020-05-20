@@ -34,6 +34,19 @@ static bool isTBAA(MDNode *TBAA, std::initializer_list<const char*> const strset
     return false;
 }
 
+static void getTBAAName(const char *prefix, MDNode *TBAA)
+{
+    if (!TBAA)
+        return;
+    if (TBAA->getNumOperands() > 2) {
+        // Get Access Type from Access Tag
+        TBAA = cast<MDNode>(TBAA->getOperand(1).get());
+        auto str = cast<MDString>(TBAA->getOperand(0))->getString();
+        printf("%s: %s\n", prefix, str);
+    }
+    return;
+}
+
 struct SC : public FunctionPass {
     static char ID; // Pass identification, replacement for typeid
     SC() : FunctionPass(ID) {}
@@ -44,43 +57,43 @@ struct SC : public FunctionPass {
         for (auto &BB : F.getBasicBlockList()) {
             BBs.insert(&BB);
         }   
-        Function *loopinfo_marker = F.getParent()->getFunction("julia.loopinfo_marker");
-        if (loopinfo_marker) {
-             for (User *U : loopinfo_marker->users()) {
-                Instruction *I = cast<Instruction>(U);
-                if (I->getParent()->getParent() != &F)
-                    continue;
-                LoopInfo &LI = getAnalysis<LoopInfoWrapperPass>().getLoopInfo();
-                Loop *L = LI.getLoopFor(I->getParent());
+        //Function *loopinfo_marker = F.getParent()->getFunction("julia.loopinfo_marker");
+        //if (loopinfo_marker) {
+        //     for (User *U : loopinfo_marker->users()) {
+        //        Instruction *I = cast<Instruction>(U);
+        //        if (I->getParent()->getParent() != &F)
+        //            continue;
+        //        LoopInfo &LI = getAnalysis<LoopInfoWrapperPass>().getLoopInfo();
+        //        Loop *L = LI.getLoopFor(I->getParent());
 
-                bool skip_sc = false;
-                // Walk `julia.loopinfo` metadata and filter out `julia.simdloop` and `julia.ivdep`
-                if (I->hasMetadataOtherThanDebugLoc()) {
-                    MDNode *JLMD= I->getMetadata("julia.loopinfo");
-                    if (JLMD) {
-                        LLVM_DEBUG(dbgs() << "LSL: has julia.loopinfo metadata with " << JLMD->getNumOperands() <<" operands\n");
-                        for (unsigned i = 0, ie = JLMD->getNumOperands(); i < ie; ++i) {
-                            Metadata *Op = JLMD->getOperand(i);
-                            const MDString *S = dyn_cast<MDString>(Op);
-                            if (S) {
-                                LLVM_DEBUG(dbgs() << "LSL: found " << S->getString() << "\n");
-                                if (S->getString().startswith("julia")) {
-                                    if (S->getString().equals("julia.simdloop"))
-                                        skip_sc = true;
-                                    continue;
-                                }
-                            }
-                        }
-                    }
-                }
+        //        bool skip_sc = false;
+        //        // Walk `julia.loopinfo` metadata and filter out `julia.noscloop`
+        //        if (I->hasMetadataOtherThanDebugLoc()) {
+        //            MDNode *JLMD= I->getMetadata("julia.loopinfo");
+        //            if (JLMD) {
+        //                LLVM_DEBUG(dbgs() << "LSL: has julia.loopinfo metadata with " << JLMD->getNumOperands() <<" operands\n");
+        //                for (unsigned i = 0, ie = JLMD->getNumOperands(); i < ie; ++i) {
+        //                    Metadata *Op = JLMD->getOperand(i);
+        //                    const MDString *S = dyn_cast<MDString>(Op);
+        //                    if (S) {
+        //                        LLVM_DEBUG(dbgs() << "LSL: found " << S->getString() << "\n");
+        //                        if (S->getString().startswith("julia")) {
+        //                            if (S->getString().equals("julia.noscloop"))
+        //                                skip_sc = true;
+        //                            continue;
+        //                        }
+        //                    }
+        //                }
+        //            }
+        //        }
 
-                if (skip_sc) {
-                    for (BasicBlock *BB : L->blocks()) {
-                        BBs.erase(BB);
-                    }
-                }
-             }
-        }
+        //        if (skip_sc) {
+        //            for (BasicBlock *BB : L->blocks()) {
+        //                BBs.erase(BB);
+        //            }
+        //        }
+        //     }
+        //}
 
         for (auto *BB : BBs) {
             for (auto &I : BB->getInstList()) {
@@ -96,14 +109,25 @@ struct SC : public FunctionPass {
                         Type *ElTy = PTy->getElementType();
                         const DataLayout &DL = F.getParent()->getDataLayout();
                         unsigned Size = DL.getTypeSizeInBits(ElTy);
+                        if (LI.getPointerAddressSpace() == DL.getAllocaAddrSpace()) {
+                            // load from alloca space
+                            //getTBAAName("alloca load", TBAA);
+                            continue;
+                        }
                         if (LI.getAlignment() == 0
                                 || (!ElTy->isIntegerTy() && !ElTy->isPointerTy() && !ElTy->isFloatingPointTy())
                                 || (Size < 8 || (Size & (Size - 1)))){
+                            //getTBAAName("unsupported atomic load", TBAA);
+                            //ElTy->dump();
+                            //printf("a: %d, s: %d\n", LI.getAlignment(), Size);
                             IRBuilder<> builder(&LI);
                             builder.SetCurrentDebugLocation(LI.getDebugLoc());
                             FenceInst *acquire = new FenceInst(builder.getContext(), AtomicOrdering::Acquire, SyncScope::System);
                             acquire->insertAfter(&LI);
                         } else {
+                            //if (LI.getAlignment() == 0) {
+                            //    LI.setAlignment(DL.getABITypeAlignment(ElTy));
+                            //}
                             LI.setOrdering(AtomicOrdering::SequentiallyConsistent);
                         }
                         changed = true;
@@ -113,9 +137,17 @@ struct SC : public FunctionPass {
                         Type *ElTy = PTy->getElementType();
                         const DataLayout &DL = F.getParent()->getDataLayout();
                         unsigned Size = DL.getTypeSizeInBits(ElTy);
+                        if (SI.getPointerAddressSpace() == DL.getAllocaAddrSpace()) {
+                            //write to alloca space
+                            //getTBAAName("alloca store", TBAA);
+                            continue;
+                        }
                         if (SI.getAlignment() == 0
                                 || (!ElTy->isIntegerTy() && !ElTy->isPointerTy() && !ElTy->isFloatingPointTy())
                                 || (Size < 8 || (Size & (Size - 1)))) {
+                            //getTBAAName("unsupported atomic store", TBAA);
+                            //ElTy->dump();
+                            //printf("a: %d, s: %d\n", SI.getAlignment(), Size);
                             IRBuilder<> builder(&SI);
                             builder.SetCurrentDebugLocation(SI.getDebugLoc());
                             FenceInst *release = new FenceInst(builder.getContext(), AtomicOrdering::Release, SyncScope::System);
@@ -123,6 +155,9 @@ struct SC : public FunctionPass {
                             FenceInst *sc = new FenceInst(builder.getContext(), AtomicOrdering::SequentiallyConsistent, SyncScope::System);
                             sc->insertAfter(&SI);
                         } else {
+                            //if (SI.getAlignment() == 0) {
+                            //    SI.setAlignment(DL.getABITypeAlignment(ElTy));
+                            //}
                             SI.setOrdering(AtomicOrdering::SequentiallyConsistent);
                         }
                         changed = true;
