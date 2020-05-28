@@ -1,0 +1,103 @@
+diff --git a/llvm/lib/CodeGen/AtomicExpandPass.cpp b/llvm/lib/CodeGen/AtomicExpandPass.cpp
+index dc7eaf6a5fe..b4566c3fe66 100644
+--- llvm/lib/CodeGen/AtomicExpandPass.cpp
++++ llvm/lib/CodeGen/AtomicExpandPass.cpp
+@@ -222,6 +222,98 @@ bool AtomicExpand::runOnFunction(Function &F) {
+     auto CASI = dyn_cast<AtomicCmpXchgInst>(I);
+     assert((LI || SI || RMWI || CASI) && "Unknown atomic instruction");
+ 
++    // For SC
++    if (LI) {
++        if (LI->getOrdering() == AtomicOrdering::SequentiallyConsistent) {
++            PointerType *PTy = dyn_cast<PointerType>(LI->getOperand(0)->getType());
++            Type *ElTy = PTy->getElementType();
++            const DataLayout &DL = LI->getModule()->getDataLayout();
++            unsigned Size = DL.getTypeSizeInBits(ElTy);
++            if (!ElTy->isIntegerTy() && !ElTy->isPointerTy() && !ElTy->isFloatingPointTy()) {
++                IRBuilder<> builder(LI);
++                LI->setOrdering(AtomicOrdering::NotAtomic);
++
++                FenceInst *acquire = new FenceInst(builder.getContext(), AtomicOrdering::Acquire, SyncScope::System);
++                acquire->insertAfter(LI);
++                LI->setVolatile(1);
++                MadeChange = true;
++                continue;
++            } else if ((Size < 8 || (Size & (Size - 1)))) {
++                IRBuilder<> builder(LI);
++                LI->setOrdering(AtomicOrdering::NotAtomic);
++
++                FenceInst *acquire = new FenceInst(builder.getContext(), AtomicOrdering::Acquire, SyncScope::System);
++                acquire->insertAfter(LI);
++                LI->setVolatile(1);
++                MadeChange = true;
++                continue;
++                //Manually expand to __atomic_load
++                //expandAtomicLoadToLibcall(LI);
++                //MadeChange = true;
++                //continue;
++            } else if (LI->getAlignment() == 0 ) {
++                IRBuilder<> builder(LI);
++                LI->setOrdering(AtomicOrdering::NotAtomic);
++
++                FenceInst *acquire = new FenceInst(builder.getContext(), AtomicOrdering::Acquire, SyncScope::System);
++                acquire->insertAfter(LI);
++                LI->setVolatile(1);
++                MadeChange = true;
++                continue;
++                //expandAtomicLoadToLibcall(LI);
++                //MadeChange = true;
++                //continue;
++            }
++        }
++    } else if (SI) {
++
++        if (SI->getOrdering() == AtomicOrdering::SequentiallyConsistent) {
++            PointerType *PTy = dyn_cast<PointerType>(SI->getOperand(1)->getType());
++            Type *ElTy = PTy->getElementType();
++            const DataLayout &DL = SI->getModule()->getDataLayout();
++            unsigned Size = DL.getTypeSizeInBits(ElTy);
++            if (!ElTy->isIntegerTy() && !ElTy->isPointerTy() && !ElTy->isFloatingPointTy()) {
++                SI->setOrdering(AtomicOrdering::NotAtomic);
++                IRBuilder<> builder(SI);
++                FenceInst *release = new FenceInst(builder.getContext(), AtomicOrdering::Release, SyncScope::System);
++                release->insertBefore(SI);
++                FenceInst *sc = new FenceInst(builder.getContext(), AtomicOrdering::SequentiallyConsistent, SyncScope::System);
++                sc->insertAfter(SI);
++                SI->setVolatile(1);
++                MadeChange = true;
++                continue;
++            } else if ((Size < 8 || (Size & (Size - 1)))) {
++                SI->setOrdering(AtomicOrdering::NotAtomic);
++                IRBuilder<> builder(SI);
++                FenceInst *release = new FenceInst(builder.getContext(), AtomicOrdering::Release, SyncScope::System);
++                release->insertBefore(SI);
++                FenceInst *sc = new FenceInst(builder.getContext(), AtomicOrdering::SequentiallyConsistent, SyncScope::System);
++                sc->insertAfter(SI);
++                SI->setVolatile(1);
++                MadeChange = true;
++                continue;
++                //Manually expand to __atomic_store
++                //expandAtomicStoreToLibcall(SI);
++                //MadeChange = true;
++                //continue;
++            } else if (SI->getAlignment() == 0 ) {
++                //expandAtomicStoreToLibcall(SI);
++                //MadeChange = true;
++                //continue;
++                SI->setOrdering(AtomicOrdering::NotAtomic);
++                IRBuilder<> builder(SI);
++                FenceInst *release = new FenceInst(builder.getContext(), AtomicOrdering::Release, SyncScope::System);
++                release->insertBefore(SI);
++                FenceInst *sc = new FenceInst(builder.getContext(), AtomicOrdering::SequentiallyConsistent, SyncScope::System);
++                sc->insertAfter(SI);
++                SI->setVolatile(1);
++                MadeChange = true;
++                continue;
++            }
++
++        }
++    }
++
+     // If the Size/Alignment is not supported, replace with a libcall.
+     if (LI) {
+       if (!atomicSizeSupported(TLI, LI)) {

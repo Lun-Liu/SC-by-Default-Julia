@@ -114,22 +114,22 @@ struct SC : public FunctionPass {
                             //getTBAAName("alloca load", TBAA);
                             continue;
                         }
-                        if (LI.getAlignment() == 0
-                                || (!ElTy->isIntegerTy() && !ElTy->isPointerTy() && !ElTy->isFloatingPointTy())
-                                || (Size < 8 || (Size & (Size - 1)))){
-                            //getTBAAName("unsupported atomic load", TBAA);
-                            //ElTy->dump();
-                            //printf("a: %d, s: %d\n", LI.getAlignment(), Size);
-                            IRBuilder<> builder(&LI);
-                            builder.SetCurrentDebugLocation(LI.getDebugLoc());
-                            FenceInst *acquire = new FenceInst(builder.getContext(), AtomicOrdering::Acquire, SyncScope::System);
-                            acquire->insertAfter(&LI);
-                        } else {
+                        //if (LI.getAlignment() == 0
+                        //        || (!ElTy->isIntegerTy() && !ElTy->isPointerTy() && !ElTy->isFloatingPointTy())
+                        //        || (Size < 8 || (Size & (Size - 1)))){
+                        //    //getTBAAName("unsupported atomic load", TBAA);
+                        //    //ElTy->dump();
+                        //    //printf("a: %d, s: %d\n", LI.getAlignment(), Size);
+                        //    IRBuilder<> builder(&LI);
+                        //    builder.SetCurrentDebugLocation(LI.getDebugLoc());
+                        //    FenceInst *acquire = new FenceInst(builder.getContext(), AtomicOrdering::Acquire, SyncScope::System);
+                        //    acquire->insertAfter(&LI);
+                        //} else {
                             //if (LI.getAlignment() == 0) {
                             //    LI.setAlignment(DL.getABITypeAlignment(ElTy));
                             //}
                             LI.setOrdering(AtomicOrdering::SequentiallyConsistent);
-                        }
+                        //}
                         changed = true;
                     } else if (isa<StoreInst>(I)) {
                         StoreInst &SI = cast<StoreInst>(I);
@@ -142,24 +142,24 @@ struct SC : public FunctionPass {
                             //getTBAAName("alloca store", TBAA);
                             continue;
                         }
-                        if (SI.getAlignment() == 0
-                                || (!ElTy->isIntegerTy() && !ElTy->isPointerTy() && !ElTy->isFloatingPointTy())
-                                || (Size < 8 || (Size & (Size - 1)))) {
-                            //getTBAAName("unsupported atomic store", TBAA);
-                            //ElTy->dump();
-                            //printf("a: %d, s: %d\n", SI.getAlignment(), Size);
-                            IRBuilder<> builder(&SI);
-                            builder.SetCurrentDebugLocation(SI.getDebugLoc());
-                            FenceInst *release = new FenceInst(builder.getContext(), AtomicOrdering::Release, SyncScope::System);
-                            release->insertBefore(&SI);
-                            FenceInst *sc = new FenceInst(builder.getContext(), AtomicOrdering::SequentiallyConsistent, SyncScope::System);
-                            sc->insertAfter(&SI);
-                        } else {
+                        //if (SI.getAlignment() == 0
+                        //        || (!ElTy->isIntegerTy() && !ElTy->isPointerTy() && !ElTy->isFloatingPointTy())
+                        //        || (Size < 8 || (Size & (Size - 1)))) {
+                        //    //getTBAAName("unsupported atomic store", TBAA);
+                        //    //ElTy->dump();
+                        //    //printf("a: %d, s: %d\n", SI.getAlignment(), Size);
+                        //    IRBuilder<> builder(&SI);
+                        //    builder.SetCurrentDebugLocation(SI.getDebugLoc());
+                        //    FenceInst *release = new FenceInst(builder.getContext(), AtomicOrdering::Release, SyncScope::System);
+                        //    release->insertBefore(&SI);
+                        //    FenceInst *sc = new FenceInst(builder.getContext(), AtomicOrdering::SequentiallyConsistent, SyncScope::System);
+                        //    sc->insertAfter(&SI);
+                        //} else {
                             //if (SI.getAlignment() == 0) {
                             //    SI.setAlignment(DL.getABITypeAlignment(ElTy));
                             //}
                             SI.setOrdering(AtomicOrdering::SequentiallyConsistent);
-                        }
+                        //}
                         changed = true;
                     }
                 }
