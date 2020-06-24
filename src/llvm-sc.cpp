@@ -56,44 +56,45 @@ struct SC : public FunctionPass {
         std::set<BasicBlock *> BBs;
         for (auto &BB : F.getBasicBlockList()) {
             BBs.insert(&BB);
-        }   
-        //Function *loopinfo_marker = F.getParent()->getFunction("julia.loopinfo_marker");
-        //if (loopinfo_marker) {
-        //     for (User *U : loopinfo_marker->users()) {
-        //        Instruction *I = cast<Instruction>(U);
-        //        if (I->getParent()->getParent() != &F)
-        //            continue;
-        //        LoopInfo &LI = getAnalysis<LoopInfoWrapperPass>().getLoopInfo();
-        //        Loop *L = LI.getLoopFor(I->getParent());
+        }
 
-        //        bool skip_sc = false;
-        //        // Walk `julia.loopinfo` metadata and filter out `julia.noscloop`
-        //        if (I->hasMetadataOtherThanDebugLoc()) {
-        //            MDNode *JLMD= I->getMetadata("julia.loopinfo");
-        //            if (JLMD) {
-        //                LLVM_DEBUG(dbgs() << "LSL: has julia.loopinfo metadata with " << JLMD->getNumOperands() <<" operands\n");
-        //                for (unsigned i = 0, ie = JLMD->getNumOperands(); i < ie; ++i) {
-        //                    Metadata *Op = JLMD->getOperand(i);
-        //                    const MDString *S = dyn_cast<MDString>(Op);
-        //                    if (S) {
-        //                        LLVM_DEBUG(dbgs() << "LSL: found " << S->getString() << "\n");
-        //                        if (S->getString().startswith("julia")) {
-        //                            if (S->getString().equals("julia.noscloop"))
-        //                                skip_sc = true;
-        //                            continue;
-        //                        }
-        //                    }
-        //                }
-        //            }
-        //        }
+        Function *loopinfo_marker = F.getParent()->getFunction("julia.loopinfo_marker");
+        if (loopinfo_marker) {
+             for (User *U : loopinfo_marker->users()) {
+                Instruction *I = cast<Instruction>(U);
+                if (I->getParent()->getParent() != &F)
+                    continue;
+                LoopInfo &LI = getAnalysis<LoopInfoWrapperPass>().getLoopInfo();
+                Loop *L = LI.getLoopFor(I->getParent());
 
-        //        if (skip_sc) {
-        //            for (BasicBlock *BB : L->blocks()) {
-        //                BBs.erase(BB);
-        //            }
-        //        }
-        //     }
-        //}
+                bool skip_sc = false;
+                // Walk `julia.loopinfo` metadata and filter out `julia.noscloop`
+                if (I->hasMetadataOtherThanDebugLoc()) {
+                    MDNode *JLMD= I->getMetadata("julia.loopinfo");
+                    if (JLMD) {
+                        LLVM_DEBUG(dbgs() << "LSL: has julia.loopinfo metadata with " << JLMD->getNumOperands() <<" operands\n");
+                        for (unsigned i = 0, ie = JLMD->getNumOperands(); i < ie; ++i) {
+                            Metadata *Op = JLMD->getOperand(i);
+                            const MDString *S = dyn_cast<MDString>(Op);
+                            if (S) {
+                                LLVM_DEBUG(dbgs() << "LSL: found " << S->getString() << "\n");
+                                if (S->getString().startswith("julia")) {
+                                    if (S->getString().equals("julia.noscloop"))
+                                        skip_sc = true;
+                                    continue;
+                                }
+                            }
+                        }
+                    }
+                }
+
+                if (skip_sc) {
+                    for (BasicBlock *BB : L->blocks()) {
+                        BBs.erase(BB);
+                    }
+                }
+             }
+        }
 
         for (auto *BB : BBs) {
             for (auto &I : BB->getInstList()) {
@@ -105,10 +106,10 @@ struct SC : public FunctionPass {
                 if (isTBAA(TBAA, {"jtbaa", "jtbaa_value", "jtbaa_data", "jtbaa_mutab", "jtbaa_arraybuf", "jtbaa_ptrarraybuf"})) {
                     if (isa<LoadInst>(I)) {
                         LoadInst &LI = cast<LoadInst>(I);
-                        PointerType *PTy = dyn_cast<PointerType>(LI.getOperand(0)->getType());
-                        Type *ElTy = PTy->getElementType();
+                        //PointerType *PTy = dyn_cast<PointerType>(LI.getOperand(0)->getType());
+                        //Type *ElTy = PTy->getElementType();
                         const DataLayout &DL = F.getParent()->getDataLayout();
-                        unsigned Size = DL.getTypeSizeInBits(ElTy);
+                        //unsigned Size = DL.getTypeSizeInBits(ElTy);
                         if (LI.getPointerAddressSpace() == DL.getAllocaAddrSpace()) {
                             // load from alloca space
                             //getTBAAName("alloca load", TBAA);
@@ -129,14 +130,14 @@ struct SC : public FunctionPass {
                             //    LI.setAlignment(DL.getABITypeAlignment(ElTy));
                             //}
                             LI.setOrdering(AtomicOrdering::SequentiallyConsistent);
+                            changed = true;
                         //}
-                        changed = true;
                     } else if (isa<StoreInst>(I)) {
                         StoreInst &SI = cast<StoreInst>(I);
-                        PointerType *PTy = dyn_cast<PointerType>(SI.getOperand(1)->getType());
-                        Type *ElTy = PTy->getElementType();
+                        //PointerType *PTy = dyn_cast<PointerType>(SI.getOperand(1)->getType());
+                        //Type *ElTy = PTy->getElementType();
                         const DataLayout &DL = F.getParent()->getDataLayout();
-                        unsigned Size = DL.getTypeSizeInBits(ElTy);
+                        //unsigned Size = DL.getTypeSizeInBits(ElTy);
                         if (SI.getPointerAddressSpace() == DL.getAllocaAddrSpace()) {
                             //write to alloca space
                             //getTBAAName("alloca store", TBAA);
@@ -154,13 +155,14 @@ struct SC : public FunctionPass {
                         //    release->insertBefore(&SI);
                         //    FenceInst *sc = new FenceInst(builder.getContext(), AtomicOrdering::SequentiallyConsistent, SyncScope::System);
                         //    sc->insertAfter(&SI);
+                        //    changed = true;
                         //} else {
                             //if (SI.getAlignment() == 0) {
                             //    SI.setAlignment(DL.getABITypeAlignment(ElTy));
                             //}
                             SI.setOrdering(AtomicOrdering::SequentiallyConsistent);
+                            changed = true;
                         //}
-                        changed = true;
                     }
                 }
 

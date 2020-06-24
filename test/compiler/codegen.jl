@@ -40,9 +40,9 @@ function test_loads_no_call(ir, load_types)
         load_split = split(line, " load ", limit=2)
         if !coverage && length(load_split) >= 2
             @test load_idx <= length(load_types)
-            if load_idx <= length(load_types)
-                @test startswith(load_split[2], "$(load_types[load_idx]),")
-            end
+#if load_idx <= length(load_types)
+#                @test startswith(load_split[2], "$(load_types[load_idx]),")
+#            end
             load_idx += 1
         end
         if startswith(line, "}")

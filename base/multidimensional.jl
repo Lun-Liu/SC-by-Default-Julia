@@ -920,7 +920,8 @@ julia> x = 0; f() = (global x += 1; x); fill!(Vector{Int}(undef, 3), f())
 """
 function fill!(A::AbstractArray{T}, x) where T
     xT = convert(T, x)
-    @nosc for I in eachindex(A)
+#    @nosc for I in eachindex(A)
+    for I in eachindex(A)
         @inbounds A[I] = xT
     end
     A
@@ -929,7 +930,8 @@ end
 # for NOSC, overwrite the original one since now we can use @nosc annotation
 @noinline function fill!(dest::Array{T}, x) where T
     xT = convert(T, x)
-    @nosc for i in eachindex(dest)
+#    @nosc for i in eachindex(dest)
+    for i in eachindex(dest)
         @inbounds dest[i] = xT
     end
     return dest

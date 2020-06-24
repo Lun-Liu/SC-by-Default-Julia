@@ -1007,7 +1007,25 @@ void Optimizer::moveToStack(CallInst *orig_inst, size_t sz, bool has_ref)
         Instruction *new_i = cur.new_i;
         if (isa<LoadInst>(user) || isa<StoreInst>(user)) {
             user->replaceUsesOfWith(orig_i, new_i);
+            // Fix for SC
+            if (auto load = dyn_cast<LoadInst>(user)) {
+                if (load->getOrdering() == AtomicOrdering::SequentiallyConsistent) {
+                    // marked to be SC by createSC pass, can safely revert back now since
+                    // it's moved to stack.
+                    load->setOrdering(AtomicOrdering::NotAtomic);
+                }
+            }
+
+            if (auto store = dyn_cast<StoreInst>(user)) {
+                if (store->getOrdering() == AtomicOrdering::SequentiallyConsistent) {
+                    // marked to be SC by createSC pass, can safely revert back now since
+                    // it's moved to stack.
+                    store->setOrdering(AtomicOrdering::NotAtomic);
+                }
+            }
+
         }
+
         else if (auto call = dyn_cast<CallInst>(user)) {
             auto callee = call->getCalledValue();
             if (pass.ptr_from_objref == callee) {

@@ -242,7 +242,7 @@ end
 # Ensure iteration over arrays is vectorizable with boundschecks off
 function g27079(X)
     r = 0
-    @inbounds for x in X
+    @inbounds @nosc for x in X
         r += x
     end
     r

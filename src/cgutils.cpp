@@ -7,7 +7,7 @@ static Instruction *tbaa_decorate(IRBuilder<> &irbuilder, MDNode *md, Instructio
     load_or_store->setMetadata(llvm::LLVMContext::MD_tbaa, md);
     if (isa<LoadInst>(load_or_store) && md == tbaa_const)
         load_or_store->setMetadata(LLVMContext::MD_invariant_load, MDNode::get(md->getContext(), None));
-    if (md == tbaa_root || md == tbaa_data || md == tbaa_value || md == tbaa_mutab 
+    if (md == tbaa_root || md == tbaa_data || md == tbaa_value || md == tbaa_mutab
             || md == tbaa_ptrarraybuf || md == tbaa_arraybuf) {
         //if (isa<LoadInst>(load_or_store)) {
         //    LoadInst *LI = dyn_cast<LoadInst>(load_or_store);
@@ -28,7 +28,7 @@ static Instruction *tbaa_decorate(IRBuilder<> &irbuilder, MDNode *md, Instructio
         //    Type *ElTy = PTy->getElementType();
         //    const DataLayout &DL = jl_data_layout;
         //    unsigned Size = DL.getTypeSizeInBits(ElTy);
-        //    if (SI->getAlignment() == 0 
+        //    if (SI->getAlignment() == 0
         //        || (!ElTy->isIntegerTy() && !ElTy->isPointerTy() && !ElTy->isFloatingPointTy())
         //        || (Size < 8 || (Size & (Size - 1)))) {
         //        FenceInst *release = new FenceInst(irbuilder.getContext(), AtomicOrdering::Release, SyncScope::System);
