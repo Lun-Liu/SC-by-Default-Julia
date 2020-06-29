@@ -47,11 +47,46 @@ static void getTBAAName(const char *prefix, MDNode *TBAA)
     return;
 }
 
+static std::pair<char *, bool> jl_demangle(const char *name)
+{
+    // This function is not allowed to reference any TLS variables since
+    // it can be called from an unmanaged thread on OSX.
+    const char *start = name + 6;
+    const char *end = name + strlen(name);
+    char *ret;
+    if (end <= start)
+        goto done;
+    if (strncmp(name, "japi1_", 6) &&
+        strncmp(name, "japi3_", 6) &&
+        strncmp(name, "julia_", 6) &&
+        strncmp(name, "jsys1_", 6) &&
+        strncmp(name, "jlsys_", 6))
+        goto done;
+    if (*start == '\0')
+        goto done;
+    while (*(--end) != '_') {
+        char c = *end;
+        if (c < '0' || c > '9')
+            goto done;
+    }
+    if (end <= start)
+        goto done;
+    ret = (char*)malloc(end - start + 1);
+    memcpy(ret, start, end - start);
+    ret[end - start] = '\0';
+    return std::make_pair(ret, true);
+done:
+    return std::make_pair(strdup(name), false);
+}
+
 struct SC : public FunctionPass {
     static char ID; // Pass identification, replacement for typeid
     SC() : FunctionPass(ID) {}
 
     bool runOnFunction(Function &F) override {
+        //StringRef Name = F.getName();
+        //std::pair<char *, bool> demangled = jl_demangle(Name.data());
+        //printf("name: %s, demangled: %s\n", Name.data(), demangled.first);
         bool changed = false;
         std::set<BasicBlock *> BBs;
         for (auto &BB : F.getBasicBlockList()) {
@@ -103,66 +138,23 @@ struct SC : public FunctionPass {
                 if (I.getMetadata(LLVMContext::MD_invariant_load))
                     continue;
                 MDNode *TBAA = I.getMetadata(LLVMContext::MD_tbaa);
-                if (isTBAA(TBAA, {"jtbaa", "jtbaa_value", "jtbaa_data", "jtbaa_mutab", "jtbaa_arraybuf", "jtbaa_ptrarraybuf"})) {
+                if (!TBAA || isTBAA(TBAA, {"jtbaa", "jtbaa_value", "jtbaa_data", "jtbaa_mutab", "jtbaa_arraybuf", "jtbaa_ptrarraybuf"})) {
                     if (isa<LoadInst>(I)) {
                         LoadInst &LI = cast<LoadInst>(I);
-                        //PointerType *PTy = dyn_cast<PointerType>(LI.getOperand(0)->getType());
-                        //Type *ElTy = PTy->getElementType();
                         const DataLayout &DL = F.getParent()->getDataLayout();
-                        //unsigned Size = DL.getTypeSizeInBits(ElTy);
                         if (LI.getPointerAddressSpace() == DL.getAllocaAddrSpace()) {
-                            // load from alloca space
-                            //getTBAAName("alloca load", TBAA);
                             continue;
                         }
-                        //if (LI.getAlignment() == 0
-                        //        || (!ElTy->isIntegerTy() && !ElTy->isPointerTy() && !ElTy->isFloatingPointTy())
-                        //        || (Size < 8 || (Size & (Size - 1)))){
-                        //    //getTBAAName("unsupported atomic load", TBAA);
-                        //    //ElTy->dump();
-                        //    //printf("a: %d, s: %d\n", LI.getAlignment(), Size);
-                        //    IRBuilder<> builder(&LI);
-                        //    builder.SetCurrentDebugLocation(LI.getDebugLoc());
-                        //    FenceInst *acquire = new FenceInst(builder.getContext(), AtomicOrdering::Acquire, SyncScope::System);
-                        //    acquire->insertAfter(&LI);
-                        //} else {
-                            //if (LI.getAlignment() == 0) {
-                            //    LI.setAlignment(DL.getABITypeAlignment(ElTy));
-                            //}
-                            LI.setOrdering(AtomicOrdering::SequentiallyConsistent);
-                            changed = true;
-                        //}
+                        LI.setOrdering(AtomicOrdering::SequentiallyConsistent);
+                        changed = true;
                     } else if (isa<StoreInst>(I)) {
                         StoreInst &SI = cast<StoreInst>(I);
-                        //PointerType *PTy = dyn_cast<PointerType>(SI.getOperand(1)->getType());
-                        //Type *ElTy = PTy->getElementType();
                         const DataLayout &DL = F.getParent()->getDataLayout();
-                        //unsigned Size = DL.getTypeSizeInBits(ElTy);
                         if (SI.getPointerAddressSpace() == DL.getAllocaAddrSpace()) {
-                            //write to alloca space
-                            //getTBAAName("alloca store", TBAA);
                             continue;
                         }
-                        //if (SI.getAlignment() == 0
-                        //        || (!ElTy->isIntegerTy() && !ElTy->isPointerTy() && !ElTy->isFloatingPointTy())
-                        //        || (Size < 8 || (Size & (Size - 1)))) {
-                        //    //getTBAAName("unsupported atomic store", TBAA);
-                        //    //ElTy->dump();
-                        //    //printf("a: %d, s: %d\n", SI.getAlignment(), Size);
-                        //    IRBuilder<> builder(&SI);
-                        //    builder.SetCurrentDebugLocation(SI.getDebugLoc());
-                        //    FenceInst *release = new FenceInst(builder.getContext(), AtomicOrdering::Release, SyncScope::System);
-                        //    release->insertBefore(&SI);
-                        //    FenceInst *sc = new FenceInst(builder.getContext(), AtomicOrdering::SequentiallyConsistent, SyncScope::System);
-                        //    sc->insertAfter(&SI);
-                        //    changed = true;
-                        //} else {
-                            //if (SI.getAlignment() == 0) {
-                            //    SI.setAlignment(DL.getABITypeAlignment(ElTy));
-                            //}
-                            SI.setOrdering(AtomicOrdering::SequentiallyConsistent);
-                            changed = true;
-                        //}
+                        SI.setOrdering(AtomicOrdering::SequentiallyConsistent);
+                        changed = true;
                     }
                 }
 
