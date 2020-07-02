@@ -20,6 +20,64 @@ extern "C" {
 
 #define JL_ARRAY_ALIGN(jl_value, nbytes) LLT_ALIGN(jl_value, nbytes)
 
+
+// a version of memmove where accesses are atomic operations so they can 
+// be ordered by other atomic operations
+static void memmove_atomic(void *dstp, const void *srcp, size_t n) JL_NOTSAFEPOINT
+{
+    size_t i;
+    if (dstp < srcp || dstp > srcp + n) {
+        for (i = 0; i < n; i++) {
+            jl_atomic_store_relaxed((unsigned char*)dstp + i, jl_atomic_load_relaxed((unsigned char*)srcp + i));
+        }
+    }
+    else {
+        for (i = 0; i < n; i++) {
+            jl_atomic_store_relaxed((unsigned char*)dstp + n - i - 1, jl_atomic_load_relaxed((unsigned char*)srcp + n - i - 1));
+        }
+    }
+}
+
+// a version of memmove where accesses are atomic operations so they can 
+// be ordered by other atomic operations
+static void memcpy_atomic(void *dstp, const void *srcp, size_t n) JL_NOTSAFEPOINT
+{
+    size_t i;
+    for (i = 0; i < n; i++) {
+        jl_atomic_store_relaxed((unsigned char*)dstp + i, jl_atomic_load_relaxed((unsigned char*)srcp + i));
+    }
+}
+
+static void memset_atomic(void * ptr, int value, size_t num) JL_NOTSAFEPOINT
+{
+    size_t i;
+    for (i = 0; i < num; i++) {
+        jl_atomic_store_relaxed((unsigned char *)ptr + i, (char)value);
+    }
+}
+
+// a version of memmove that has fences around it
+static void memmove_fence(void *dstp, const void *srcp, size_t n) JL_NOTSAFEPOINT
+{
+    jl_fence_release();
+    memmove_atomic(dstp, srcp, n);
+    jl_fence();
+}
+
+// a version of memcpy that has fences around it
+static void memcpy_fence(void *dstp, const void *srcp, size_t n) JL_NOTSAFEPOINT
+{
+    jl_fence_release();
+    memcpy_atomic(dstp, srcp, n);
+    jl_fence();
+}
+
+// a version of memset that has fences around it
+static void memset_fence(void * ptr, int value, size_t num) JL_NOTSAFEPOINT
+{
+    memset_atomic(ptr, value, num);
+    jl_fence();
+}
 // array constructors ---------------------------------------------------------
 char *jl_array_typetagdata(jl_array_t *a) JL_NOTSAFEPOINT
 {
@@ -138,6 +196,9 @@ static jl_array_t *_new_array_(jl_value_t *atype, uint32_t ndims, size_t *dims,
         for (i = 0; i < ndims; i++)
             adims[i] = dims[i];
     }
+
+    // SC: full fence here so a is valid only after initialization.
+    jl_fence();
 
     return a;
 }
@@ -267,11 +328,15 @@ JL_DLLEXPORT jl_array_t *jl_reshape_array(jl_value_t *atype, jl_array_t *data,
 #endif
     }
 
+    // SC: full fence here so a is only available after initialization
+    jl_fence();
     return a;
 }
 
 JL_DLLEXPORT jl_array_t *jl_string_to_array(jl_value_t *str)
 {
+    //SC
+    jl_fence_release();
     jl_ptls_t ptls = jl_get_ptls_states();
     jl_array_t *a;
 
@@ -294,6 +359,8 @@ JL_DLLEXPORT jl_array_t *jl_string_to_array(jl_value_t *str)
     a->length = l;
 #endif
     a->nrows = a->maxsize = l;
+    // SC: full fence here so a is only available after initialization
+    jl_fence();
     return a;
 }
 
@@ -301,6 +368,8 @@ JL_DLLEXPORT jl_array_t *jl_string_to_array(jl_value_t *str)
 JL_DLLEXPORT jl_array_t *jl_ptr_to_array_1d(jl_value_t *atype, void *data,
                                             size_t nel, int own_buffer)
 {
+    //SC
+    jl_fence_release();
     jl_ptls_t ptls = jl_get_ptls_states();
     jl_array_t *a;
     jl_value_t *eltype = jl_tparam0(atype);
@@ -349,12 +418,16 @@ JL_DLLEXPORT jl_array_t *jl_ptr_to_array_1d(jl_value_t *atype, void *data,
     a->nrows = nel;
     a->maxsize = nel;
     a->offset = 0;
+    // SC: full fence here so a is only available after initialization
+    jl_fence();
     return a;
 }
 
 JL_DLLEXPORT jl_array_t *jl_ptr_to_array(jl_value_t *atype, void *data,
                                          jl_value_t *_dims, int own_buffer)
 {
+    //SC
+    jl_fence_release();
     jl_ptls_t ptls = jl_get_ptls_states();
     size_t nel = 1;
     jl_array_t *a;
@@ -418,6 +491,8 @@ JL_DLLEXPORT jl_array_t *jl_ptr_to_array(jl_value_t *atype, void *data,
     if (a->flags.ndims != ndims)
         jl_exceptionf(jl_argumenterror_type, "invalid Array dimensions");
     memcpy(&a->nrows, dims, ndims * sizeof(size_t));
+    // SC: full fence here so a is only available after initialization
+    jl_fence();
     return a;
 }
 
@@ -542,7 +617,8 @@ JL_DLLEXPORT jl_value_t *jl_ptrarrayref(jl_array_t *a JL_PROPAGATES_ROOT, size_t
 {
     assert(i < jl_array_len(a));
     assert(a->flags.ptrarray);
-    jl_value_t *elt = ((jl_value_t**)a->data)[i];
+    //jl_value_t *elt = ((jl_value_t**)a->data)[i];
+    jl_value_t *elt = jl_atomic_load(((jl_value_t**)a->data) + i);
     if (elt == NULL) {
         jl_throw(jl_undefref_exception);
     }
@@ -569,13 +645,15 @@ JL_DLLEXPORT jl_value_t *jl_arrayref(jl_array_t *a, size_t i)
 JL_DLLEXPORT int jl_array_isassigned(jl_array_t *a, size_t i)
 {
     if (a->flags.ptrarray) {
-        return ((jl_value_t**)jl_array_data(a))[i] != NULL;
+        //return ((jl_value_t**)jl_array_data(a))[i] != NULL;
+        return jl_atomic_load(((jl_value_t**)jl_array_data(a)) + i) != NULL;
     }
     else if (a->flags.hasptr) {
          jl_datatype_t *eltype = (jl_datatype_t*)jl_tparam0(jl_typeof(a));
          assert(eltype->layout->first_ptr >= 0);
          jl_value_t **elem = (jl_value_t**)((char*)a->data + i * a->elsize);
-         return elem[eltype->layout->first_ptr] != NULL;
+         //return elem[eltype->layout->first_ptr] != NULL;
+         return jl_atomic_load(elem + eltype->layout->first_ptr) != NULL;
     }
     return 1;
 }
@@ -605,7 +683,8 @@ JL_DLLEXPORT void jl_arrayset(jl_array_t *a JL_ROOTING_ARGUMENT, jl_value_t *rhs
             jl_gc_multi_wb(jl_array_owner(a), rhs);
     }
     else {
-        ((jl_value_t**)a->data)[i] = rhs;
+        //((jl_value_t**)a->data)[i] = rhs;
+        jl_atomic_store(((jl_value_t**)a->data) + i, rhs);
         jl_gc_wb(jl_array_owner(a), rhs);
     }
 }
@@ -614,12 +693,14 @@ JL_DLLEXPORT void jl_arrayunset(jl_array_t *a, size_t i)
 {
     if (i >= jl_array_len(a))
         jl_bounds_error_int((jl_value_t*)a, i + 1);
-    if (a->flags.ptrarray)
-        ((jl_value_t**)a->data)[i] = NULL;
+    if (a->flags.ptrarray) {
+        //((jl_value_t**)a->data)[i] = NULL;
+        jl_atomic_store(((jl_value_t**)a->data) + i, NULL);
+    }
     else if (a->flags.hasptr) {
         size_t elsize = a->elsize;
         jl_assume(elsize >= sizeof(void*) && elsize % sizeof(void*) == 0);
-        memset((char*)a->data + elsize * i, 0, elsize);
+        memset_fence((char*)a->data + elsize * i, 0, elsize);
     }
 }
 
@@ -636,6 +717,8 @@ JL_DLLEXPORT void jl_arrayunset(jl_array_t *a, size_t i)
 // the **beginning** of the new buffer.
 static int NOINLINE array_resize_buffer(jl_array_t *a, size_t newlen)
 {
+    // SC: 
+    jl_fence_release();
     jl_ptls_t ptls = jl_get_ptls_states();
     assert(!a->flags.isshared || a->flags.how == 3);
     size_t elsz = a->elsize;
@@ -695,6 +778,8 @@ static int NOINLINE array_resize_buffer(jl_array_t *a, size_t newlen)
            "Race condition detected: recursive resizing on the same array.");
     a->flags.isshared = 0;
     a->maxsize = newlen;
+    // SC: full fence here
+    jl_fence();
     return newbuf;
 }
 
@@ -716,7 +801,7 @@ static void NOINLINE array_try_unshare(jl_array_t *a)
         int newbuf = array_resize_buffer(a, len);
         assert(newbuf);
         (void)newbuf;
-        memcpy(a->data, olddata, nbytes);
+        memcpy_fence(a->data, olddata, nbytes);
     }
 }
 
@@ -762,7 +847,7 @@ STATIC_INLINE void jl_array_grow_at_beg(jl_array_t *a, size_t idx, size_t inc,
         if (isbitsunion) newtypetagdata = typetagdata - inc;
         if (idx > 0) {
             // inserting new elements after 1st element
-            memmove(newdata, data, idx * elsz);
+            memmove_fence(newdata, data, idx * elsz);
             if (isbitsunion) {
                 memmove(newtypetagdata, typetagdata, idx);
                 memset(newtypetagdata + idx, 0, inc);
@@ -796,11 +881,11 @@ STATIC_INLINE void jl_array_grow_at_beg(jl_array_t *a, size_t idx, size_t inc,
             // We could use memcpy if resizing allocates a new buffer,
             // hopefully it's not a particularly important optimization.
             if (idx > 0 && newdata < data) {
-                memmove(newdata, data, nb1);
+                memmove_fence(newdata, data, nb1);
             }
-            memmove(newdata + nbinc + nb1, data + nb1, n * elsz - nb1);
+            memmove_fence(newdata + nbinc + nb1, data + nb1, n * elsz - nb1);
             if (idx > 0 && newdata > data) {
-                memmove(newdata, data, nb1);
+                memmove_fence(newdata, data, nb1);
             }
             a->offset = newoffset;
         }
@@ -810,16 +895,16 @@ STATIC_INLINE void jl_array_grow_at_beg(jl_array_t *a, size_t idx, size_t inc,
             newdata = data - oldoffsnb + a->offset * elsz;
             if (isbitsunion) newtypetagdata = newdata + (a->maxsize - a->offset) * elsz + a->offset;
             if (idx > 0 && newdata < data) {
-                memmove(newdata, data, nb1);
+                memmove_fence(newdata, data, nb1);
                 if (isbitsunion) {
                     memmove(newtypetagdata, typetagdata, idx);
                     memset(newtypetagdata + idx, 0, inc);
                 }
             }
-            memmove(newdata + nbinc + nb1, data + nb1, n * elsz - nb1);
+            memmove_fence(newdata + nbinc + nb1, data + nb1, n * elsz - nb1);
             if (isbitsunion) memmove(newtypetagdata + idx + inc, typetagdata + idx, n - idx);
             if (idx > 0 && newdata > data) {
-                memmove(newdata, data, nb1);
+                memmove_fence(newdata, data, nb1);
                 if (isbitsunion) {
                     memmove(newtypetagdata, typetagdata, idx);
                     memset(newtypetagdata + idx, 0, inc);
@@ -876,13 +961,13 @@ STATIC_INLINE void jl_array_grow_at_end(jl_array_t *a, size_t idx,
         char *newdata = (char*)a->data + a->offset * elsz;
         if (isbitsunion) newtypetagdata = newdata + (a->maxsize - a->offset) * elsz + a->offset;
         if (newbuf) {
-            memcpy(newdata, data, nb1);
+            memcpy_fence(newdata, data, nb1);
             if (isbitsunion) {
                 memcpy(newtypetagdata, typetagdata, idx);
                 if (has_gap) memcpy(newtypetagdata + idx + inc, typetagdata + idx, n - idx);
                 memset(newtypetagdata + idx, 0, inc);
             }
-            if (has_gap) memcpy(newdata + nb1 + nbinc, data + nb1, n * elsz - nb1);
+            if (has_gap) memcpy_fence(newdata + nb1 + nbinc, data + nb1, n * elsz - nb1);
         }
         else {
             if (isbitsunion) {
@@ -891,7 +976,7 @@ STATIC_INLINE void jl_array_grow_at_end(jl_array_t *a, size_t idx,
                 memmove(newtypetagdata, typetagdata, idx);
                 memset(newtypetagdata + idx, 0, inc);
             }
-            if (has_gap) memmove(newdata + nb1 + nbinc, newdata + nb1, n * elsz - nb1);
+            if (has_gap) memmove_fence(newdata + nb1 + nbinc, newdata + nb1, n * elsz - nb1);
         }
         a->data = data = newdata;
     }
@@ -901,7 +986,7 @@ STATIC_INLINE void jl_array_grow_at_end(jl_array_t *a, size_t idx,
             memset(typetagdata + idx, 0, inc);
         }
         size_t nb1 = idx * elsz;
-        memmove(data + nb1 + inc * elsz, data + nb1, n * elsz - nb1);
+        memmove_fence(data + nb1 + inc * elsz, data + nb1, n * elsz - nb1);
     }
     else {
         // there was enough room for requested growth already in a->maxsize
@@ -914,7 +999,7 @@ STATIC_INLINE void jl_array_grow_at_end(jl_array_t *a, size_t idx,
 #endif
     a->nrows = newnrows;
     if (a->flags.ptrarray || a->flags.hasptr) { // TODO: check for zeroinit
-        memset(data + idx * elsz, 0, inc * elsz);
+        memset_fence(data + idx * elsz, 0, inc * elsz);
     }
 }
 
@@ -968,6 +1053,8 @@ STATIC_INLINE void jl_array_shrink(jl_array_t *a, size_t dec)
         //this is a julia-allocated buffer that needs to be marked
     }
     else if (a->flags.how == 2) {
+        //SC
+        jl_fence_release();
         //malloc-allocated pointer this array object manages
         char *typetagdata;
         char *newtypetagdata;
@@ -984,6 +1071,8 @@ STATIC_INLINE void jl_array_shrink(jl_array_t *a, size_t dec)
             memcpy(newtypetagdata, typetagdata, a->nrows);
             free(typetagdata);
         }
+        // SC: full fence here.
+        jl_fence();
     }
     else if (a->flags.how == 3) {
         //this has has a pointer to the object that owns the data
@@ -1036,12 +1125,12 @@ STATIC_INLINE void jl_array_del_at_beg(jl_array_t *a, size_t idx, size_t dec,
         if (elsz == 1 && !isbitsunion)
             nbtotal++;
         if (idx > 0) {
-            memmove(newdata, olddata, nb1);
+            memmove_fence(newdata, olddata, nb1);
             if (isbitsunion) memmove(newtypetagdata, typetagdata, idx);
         }
         // Move the rest of the data if the offset changed
         if (newoffs != offset) {
-            memmove(newdata + nb1, olddata + nb1 + nbdec, nbtotal - nb1);
+            memmove_fence(newdata + nb1, olddata + nb1 + nbdec, nbtotal - nb1);
             if (isbitsunion) memmove(newtypetagdata + idx, typetagdata + idx + dec, n - idx);
         }
         a->data = newdata;
@@ -1063,7 +1152,7 @@ STATIC_INLINE void jl_array_del_at_end(jl_array_t *a, size_t idx, size_t dec,
     int isbitsunion = jl_array_isbitsunion(a);
     size_t last = idx + dec;
     if (n > last) {
-        memmove(data + idx * elsz, data + last * elsz, (n - last) * elsz);
+        memmove_fence(data + idx * elsz, data + last * elsz, (n - last) * elsz);
         if (isbitsunion) {
             char *typetagdata = jl_array_typetagdata(a);
             memmove(typetagdata + idx, typetagdata + last, n - last);
@@ -1153,7 +1242,7 @@ JL_DLLEXPORT jl_array_t *jl_array_copy(jl_array_t *ary)
     jl_array_t *new_ary = _new_array_(jl_typeof(ary), jl_array_ndims(ary),
                                       &ary->nrows, !ary->flags.ptrarray,
                                       ary->flags.hasptr, isunion, elsz);
-    memcpy(new_ary->data, ary->data, len * elsz);
+    memcpy_fence(new_ary->data, ary->data, len * elsz);
     // ensure isbits union arrays copy their selector bytes correctly
     if (jl_array_isbitsunion(ary))
         memcpy(jl_array_typetagdata(new_ary), jl_array_typetagdata(ary), len);
@@ -1167,8 +1256,10 @@ static NOINLINE ssize_t jl_array_ptr_copy_forward(jl_value_t *owner,
                                                   ssize_t n)
 {
     for (ssize_t i = 0; i < n; i++) {
-        void *val = src_p[i];
-        dest_p[i] = val;
+        //void *val = src_p[i];
+        //dest_p[i] = val;
+        void *val = jl_atomic_load(src_p + i);
+        jl_atomic_store(dest_p + i, val);
         // `val` is young or old-unmarked
         if (val && !(jl_astaggedvalue(val)->bits.gc & GC_MARKED)) {
             jl_gc_queue_root(owner);
@@ -1183,8 +1274,10 @@ static NOINLINE ssize_t jl_array_ptr_copy_backward(jl_value_t *owner,
                                                    ssize_t n)
 {
     for (ssize_t i = 0; i < n; i++) {
-        void *val = src_p[n - i - 1];
-        dest_p[n - i - 1] = val;
+        void *val = jl_atomic_load(src_p + n - i - 1);
+        jl_atomic_store(dest_p + n - i - 1, val);
+        //void *val = src_p[n - i - 1];
+        //dest_p[n - i - 1] = val;
         // `val` is young or old-unmarked
         if (val && !(jl_astaggedvalue(val)->bits.gc & GC_MARKED)) {
             jl_gc_queue_root(owner);
@@ -1218,7 +1311,7 @@ JL_DLLEXPORT void jl_array_ptr_copy(jl_array_t *dest, void **dest_p,
             n -= done;
         }
     }
-    memmove(dest_p, src_p, n * sizeof(void*));
+    memmove_fence(dest_p, src_p, n * sizeof(void*));
 }
 
 JL_DLLEXPORT void jl_array_ptr_1d_push(jl_array_t *a, jl_value_t *item)

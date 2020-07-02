@@ -138,7 +138,7 @@ struct SC : public FunctionPass {
                 if (I.getMetadata(LLVMContext::MD_invariant_load))
                     continue;
                 MDNode *TBAA = I.getMetadata(LLVMContext::MD_tbaa);
-                if (!TBAA || isTBAA(TBAA, {"jtbaa", "jtbaa_value", "jtbaa_data", "jtbaa_mutab", "jtbaa_arraybuf", "jtbaa_ptrarraybuf"})) {
+                if (isTBAA(TBAA, {"jtbaa", "jtbaa_value", "jtbaa_data", "jtbaa_mutab", "jtbaa_arraybuf", "jtbaa_ptrarraybuf", "jtbaa_binding"})) {
                     if (isa<LoadInst>(I)) {
                         LoadInst &LI = cast<LoadInst>(I);
                         const DataLayout &DL = F.getParent()->getDataLayout();

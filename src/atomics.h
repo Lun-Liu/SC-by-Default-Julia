@@ -44,6 +44,9 @@
  *        specified.
  */
 #if defined(__GNUC__)
+#  define jl_fence() __atomic_thread_fence(__ATOMIC_SEQ_CST)
+#  define jl_fence_release() __atomic_thread_fence(__ATOMIC_RELEASE)
+#  define jl_fence_acquire() __atomic_thread_fence(__ATOMIC_ACQUIRE)
 #  define jl_signal_fence() __atomic_signal_fence(__ATOMIC_SEQ_CST)
 #  define jl_atomic_fetch_add_relaxed(obj, arg)         \
     __atomic_fetch_add(obj, arg, __ATOMIC_RELAXED)
@@ -75,6 +78,8 @@
 // TODO: Maybe add jl_atomic_compare_exchange_weak for spin lock
 #  define jl_atomic_store(obj, val)                     \
     __atomic_store_n(obj, val, __ATOMIC_SEQ_CST)
+#  define jl_atomic_store_relaxed(obj, val)                     \
+    __atomic_store_n(obj, val, __ATOMIC_RELAXED)
 #  if defined(__clang__) || defined(__ICC) || defined(__INTEL_COMPILER) || \
     !(defined(_CPU_X86_) || defined(_CPU_X86_64_))
 // ICC and Clang doesn't have this bug...
@@ -96,6 +101,7 @@
 #  define jl_atomic_load_relaxed(obj)           \
     __atomic_load_n(obj, __ATOMIC_RELAXED)
 #elif defined(_COMPILER_MICROSOFT_)
+// TODO: these only define compiler barriers, and aren't correct outside of x86
 #  define jl_signal_fence() _ReadWriteBarrier()
 
 // add

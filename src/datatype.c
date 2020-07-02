@@ -17,6 +17,65 @@
 extern "C" {
 #endif
 
+// a version of memmove where accesses are atomic operations so they can 
+// be ordered by other atomic operations
+static void memmove_atomic(void *dstp, const void *srcp, size_t n) JL_NOTSAFEPOINT
+{
+    size_t i;
+    if (dstp < srcp || dstp > srcp + n) {
+        for (i = 0; i < n; i++) {
+            jl_atomic_store_relaxed((unsigned char*)dstp + i, jl_atomic_load_relaxed((unsigned char*)srcp + i));
+        }
+    }
+    else {
+        for (i = 0; i < n; i++) {
+            jl_atomic_store_relaxed((unsigned char*)dstp + n - i - 1, jl_atomic_load_relaxed((unsigned char*)srcp + n - i - 1));
+        }
+    }
+}
+
+// a version of memmove where accesses are atomic operations so they can 
+// be ordered by other atomic operations
+static void memcpy_atomic(void *dstp, const void *srcp, size_t n) JL_NOTSAFEPOINT
+{
+    size_t i;
+    for (i = 0; i < n; i++) {
+        jl_atomic_store_relaxed((unsigned char*)dstp + i, jl_atomic_load_relaxed((unsigned char*)srcp + i));
+    }
+}
+
+static void memset_atomic(void * ptr, int value, size_t num) JL_NOTSAFEPOINT
+{
+    size_t i;
+    for (i = 0; i < num; i++) {
+        jl_atomic_store_relaxed((unsigned char *)ptr + i, (char)value);
+    }
+}
+
+
+// a version of memmove that has fences around it
+static void memmove_fence(void *dstp, const void *srcp, size_t n) JL_NOTSAFEPOINT
+{
+    //jl_fence();
+    jl_fence_release();
+    memmove_atomic(dstp, srcp, n);
+    jl_fence();
+}
+
+// a version of memcpy that has acquire fence
+static void memcpy_load_atomic(void *dstp, const void *srcp, size_t n) JL_NOTSAFEPOINT
+{
+    memcpy_atomic(dstp, srcp, n);
+    jl_fence_acquire();
+}
+
+// a version of memcpy that has release and sc fence
+static void memcpy_store_atomic(void *dstp, const void *srcp, size_t n) JL_NOTSAFEPOINT
+{
+    jl_fence_release();
+    memcpy_atomic(dstp, srcp, n);
+    jl_fence();
+}
 // allocating TypeNames -----------------------------------------------------------
 
 static int is10digit(char c) JL_NOTSAFEPOINT
@@ -659,27 +718,45 @@ JL_DLLEXPORT jl_value_t *jl_new_bits(jl_value_t *dt, void *data)
     size_t nb = jl_datatype_size(bt);
     // some types have special pools to minimize allocations
     if (nb == 0)               return jl_new_struct_uninit(bt); // returns bt->instance
-    if (bt == jl_bool_type)    return (1 & *(int8_t*)data) ? jl_true : jl_false;
-    if (bt == jl_uint8_type)   return jl_box_uint8(*(uint8_t*)data);
-    if (bt == jl_int64_type)   return jl_box_int64(*(int64_t*)data);
-    if (bt == jl_int32_type)   return jl_box_int32(*(int32_t*)data);
-    if (bt == jl_int8_type)    return jl_box_int8(*(int8_t*)data);
-    if (bt == jl_int16_type)   return jl_box_int16(*(int16_t*)data);
-    if (bt == jl_uint64_type)  return jl_box_uint64(*(uint64_t*)data);
-    if (bt == jl_uint32_type)  return jl_box_uint32(*(uint32_t*)data);
-    if (bt == jl_uint16_type)  return jl_box_uint16(*(uint16_t*)data);
-    if (bt == jl_char_type)    return jl_box_char(*(uint32_t*)data);
+    if (bt == jl_bool_type)    return (1 & jl_atomic_load((int8_t*)data)) ? jl_true : jl_false;
+    if (bt == jl_uint8_type)   return jl_box_uint8(jl_atomic_load((uint8_t*)data));
+    if (bt == jl_int64_type)   return jl_box_int64(jl_atomic_load((int64_t*)data));
+    if (bt == jl_int32_type)   return jl_box_int32(jl_atomic_load((int32_t*)data));
+    if (bt == jl_int8_type)    return jl_box_int8(jl_atomic_load((int8_t*)data));
+    if (bt == jl_int16_type)   return jl_box_int16(jl_atomic_load((int16_t*)data));
+    if (bt == jl_uint64_type)  return jl_box_uint64(jl_atomic_load((uint64_t*)data));
+    if (bt == jl_uint32_type)  return jl_box_uint32(jl_atomic_load((uint32_t*)data));
+    if (bt == jl_uint16_type)  return jl_box_uint16(jl_atomic_load((uint16_t*)data));
+    if (bt == jl_char_type)    return jl_box_char(jl_atomic_load((uint32_t*)data));
 
     jl_value_t *v = jl_gc_alloc(ptls, nb, bt);
     switch (nb) {
-    case  1: *(uint8_t*) v = *(uint8_t*)data;    break;
-    case  2: *(uint16_t*)v = jl_load_unaligned_i16(data);   break;
-    case  4: *(uint32_t*)v = jl_load_unaligned_i32(data);   break;
-    case  8: *(uint64_t*)v = jl_load_unaligned_i64(data);   break;
-    case 16:
-        memcpy(jl_assume_aligned(v, 16), data, 16);
+    case  1: *(uint8_t*) v = jl_atomic_load((uint8_t*)data);    break;
+    //case  2: *(uint16_t*)v = jl_load_unaligned_i16(data);   break;
+    //case  4: *(uint32_t*)v = jl_load_unaligned_i32(data);   break;
+    //case  8: *(uint64_t*)v = jl_load_unaligned_i64(data);   break;
+    case  2: {
+        uint16_t val;
+        memcpy_load_atomic(&val, data, 2);
+        *(uint16_t*)v = val;
         break;
-    default: memcpy(v, data, nb);
+    }
+    case  4: {
+        uint32_t val;
+        memcpy_load_atomic(&val, data, 4);
+        *(uint32_t*)v = val;
+        break;
+    }
+    case  8: {
+        uint64_t val;
+        memcpy_load_atomic(&val, data, sizeof(uint64_t));
+        *(uint64_t*)v = val;
+        break;
+    }
+    case 16:
+        memcpy_load_atomic(jl_assume_aligned(v, 16), data, 16);
+        break;
+    default: memcpy_load_atomic(v, data, nb);
     }
     return v;
 }
@@ -699,14 +776,16 @@ void jl_assign_bits(void *dest, jl_value_t *bits)
     size_t nb = jl_datatype_size(jl_typeof(bits));
     if (nb == 0) return;
     switch (nb) {
-    case  1: *(uint8_t*)dest    = *(uint8_t*)bits;    break;
-    case  2: jl_store_unaligned_i16(dest, *(uint16_t*)bits); break;
-    case  4: jl_store_unaligned_i32(dest, *(uint32_t*)bits); break;
-    case  8: jl_store_unaligned_i64(dest, *(uint64_t*)bits); break;
+    //case  1: *(uint8_t*)dest    = *(uint8_t*)bits;    break;
+    case  1: jl_atomic_store((uint8_t*)dest, *(uint8_t*)bits);    break;
+    //case  2: jl_store_unaligned_i16(dest, *(uint16_t*)bits); break;
+    case  2: memcpy_store_atomic(dest, &(*(uint16_t*)bits), 2); break;
+    case  4: memcpy_store_atomic(dest, &(*(uint32_t*)bits), 4); break;
+    case  8: memcpy_store_atomic(dest, &(*(uint64_t*)bits), 8); break;
     case 16:
-        memcpy(dest, jl_assume_aligned(bits, 16), 16);
+        memcpy_store_atomic(dest, jl_assume_aligned(bits, 16), 16);
         break;
-    default: memcpy(dest, bits, nb);
+    default: memcpy_store_atomic(dest, bits, nb);
     }
 }
 
@@ -1018,7 +1097,8 @@ JL_DLLEXPORT jl_value_t *jl_get_nth_field(jl_value_t *v, size_t i)
     assert(i < jl_datatype_nfields(st));
     size_t offs = jl_field_offset(st, i);
     if (jl_field_isptr(st, i)) {
-        return *(jl_value_t**)((char*)v + offs);
+        //return *(jl_value_t**)((char*)v + offs);
+        return jl_atomic_load((jl_value_t**)((char*)v + offs));
     }
     jl_value_t *ty = jl_field_type(st, i);
     if (jl_is_uniontype(ty)) {
@@ -1036,7 +1116,8 @@ JL_DLLEXPORT jl_value_t *jl_get_nth_field_noalloc(jl_value_t *v JL_PROPAGATES_RO
     assert(i < jl_datatype_nfields(st));
     size_t offs = jl_field_offset(st,i);
     assert(jl_field_isptr(st,i));
-    return *(jl_value_t**)((char*)v + offs);
+    //return *(jl_value_t**)((char*)v + offs);
+    return jl_atomic_load((jl_value_t**)((char*)v + offs));
 }
 
 JL_DLLEXPORT jl_value_t *jl_get_nth_field_checked(jl_value_t *v, size_t i)
@@ -1066,7 +1147,8 @@ void set_nth_field(jl_datatype_t *st, void *v, size_t i, jl_value_t *rhs) JL_NOT
 {
     size_t offs = jl_field_offset(st, i);
     if (jl_field_isptr(st, i)) {
-        *(jl_value_t**)((char*)v + offs) = rhs;
+        //*(jl_value_t**)((char*)v + offs) = rhs;
+        jl_atomic_store((jl_value_t**)((char*)v + offs), rhs);
         if (rhs != NULL)
             jl_gc_wb(v, rhs);
     }
@@ -1092,11 +1174,15 @@ JL_DLLEXPORT int jl_field_isdefined(jl_value_t *v, size_t i)
     size_t offs = jl_field_offset(st, i);
     char *fld = (char*)v + offs;
     if (jl_field_isptr(st, i)) {
-        return *(jl_value_t**)fld != NULL;
+        jl_value_t *fval = jl_atomic_load((jl_value_t**)fld);
+        return fval != NULL;
+        //return *(jl_value_t**)fld != NULL;
     }
     jl_datatype_t *ft = (jl_datatype_t*)jl_field_type(st, i);
     if (jl_is_datatype(ft) && ft->layout->first_ptr >= 0) {
-         return ((jl_value_t**)fld)[ft->layout->first_ptr] != NULL;
+        jl_value_t *fval = jl_atomic_load((jl_value_t **)fld + ft->layout->first_ptr);
+        return fval != NULL;
+        //return ((jl_value_t**)fld)[ft->layout->first_ptr] != NULL;
     }
     return 1;
 }
