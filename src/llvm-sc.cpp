@@ -7,6 +7,8 @@
 
 #include <llvm/IR/LegacyPassManager.h>
 
+#include <llvm/Support/CommandLine.h>
+
 #include <set>
 
 #include "llvm-version.h"
@@ -16,6 +18,8 @@ using namespace llvm;
 
 #define DEBUG_TYPE "sc"
 #undef DEBUG
+
+static cl::opt<std::string> SkippedList("scskip_list", cl::desc("Specify a list of function name that will be treated as @nosc"), cl::value_desc("name;name;..."));
 
 static bool isTBAA(MDNode *TBAA, std::initializer_list<const char*> const strset)
 {
@@ -86,7 +90,28 @@ struct SC : public FunctionPass {
     bool runOnFunction(Function &F) override {
         //StringRef Name = F.getName();
         //std::pair<char *, bool> demangled = jl_demangle(Name.data());
+        //char *demangled_name = jl_demangle(Name.data()).first;
+        //char ch = ';';
+        //strncat(demangled_name, &ch, 1);
+        //if (strstr(SkippedList.c_str(), demangled_name) != NULL) {
+            //outs() << "Found name: " << demangled_name << "\n";
+            // Found in SCSkip list, do nothing
+            //return false;
+        //} 
         //printf("name: %s, demangled: %s\n", Name.data(), demangled.first);
+        //Module *M = F.getParent();
+        //outs() << M->getModuleIdentifier() << "\n";
+        //if (SkippedList != "") {
+        //    outs() << "Got argument: " << SkippedList << "\n";
+        //}
+        MDNode *MMD= F.getMetadata("julia.module");
+        if (MMD) {
+            auto module = cast<MDString>(MMD->getOperand(0))->getString();
+            //printf("Got module %s, function: %s\n", module, Name);
+            //printf("Got module %s\n", module);
+            // TODO: assert module == Base
+            return false;
+        }
         bool changed = false;
         std::set<BasicBlock *> BBs;
         for (auto &BB : F.getBasicBlockList()) {
@@ -114,7 +139,7 @@ struct SC : public FunctionPass {
                             if (S) {
                                 LLVM_DEBUG(dbgs() << "LSL: found " << S->getString() << "\n");
                                 if (S->getString().startswith("julia")) {
-                                    if (S->getString().equals("julia.noscloop"))
+                                    if (S->getString().equals("julia.noscloop") || S->getString().equals("julia.simdloop"))
                                         skip_sc = true;
                                     continue;
                                 }

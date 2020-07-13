@@ -5774,6 +5774,12 @@ static std::unique_ptr<Module> emit_function(
     }
     declarations->specFunctionObject = strdup(f->getName().str().c_str());
 
+    if(ctx.module->name == jl_symbol("Base")) { 
+        //printf("Current function %s, module: %s\n", f->getName().str().c_str(), jl_symbol_name(ctx.module->name));
+        MDNode* MD = MDNode::get(jl_LLVMContext, MDString::get(jl_LLVMContext, "Base"));
+        f->setMetadata("julia.module", MD);
+    }
+
     if (jlrettype == (jl_value_t*)jl_bottom_type)
         f->setDoesNotReturn();
 
