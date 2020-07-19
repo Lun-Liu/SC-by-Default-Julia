@@ -131,8 +131,8 @@ include("simdloop.jl")
 using .SimdLoop
 
 # SC loops
-include("scloop.jl")
-using .NoSCLoop
+include("drfloop.jl")
+using .DRFLoop
 
 # map-reduce operators
 include("reduce.jl")

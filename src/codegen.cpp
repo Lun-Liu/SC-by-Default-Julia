@@ -5758,6 +5758,12 @@ static std::unique_ptr<Module> emit_function(
         wrapName << "jfptr_" << unadorned_name << "_" << globalUnique;
         Function *fwrap = gen_invoke_wrapper(lam, jlrettype, returninfo, retarg, wrapName.str(), M);
         declarations->functionObject = strdup(fwrap->getName().str().c_str());
+        //printf("Current function %s, module: %s\n", f->getName().str().c_str(), jl_symbol_name(ctx.module->name));
+        //if(ctx.module->name == jl_symbol("Base") || ctx.module->name == jl_symbol("Implementations")) { 
+        //printf("Current function %s, module: %s\n", f->getName().str().c_str(), jl_symbol_name(ctx.module->name));
+        MDNode* MD = MDNode::get(jl_LLVMContext, MDString::get(jl_LLVMContext, jl_symbol_name(ctx.module->name)));
+        fwrap->setMetadata("julia.module", MD);
+        //}
     }
     else {
         f = Function::Create(needsparams ? jl_func_sig_sparams : jl_func_sig,
@@ -5774,11 +5780,12 @@ static std::unique_ptr<Module> emit_function(
     }
     declarations->specFunctionObject = strdup(f->getName().str().c_str());
 
-    if(ctx.module->name == jl_symbol("Base")) { 
+    //printf("Current function %s, module: %s\n", f->getName().str().c_str(), jl_symbol_name(ctx.module->name));
+    //if(ctx.module->name == jl_symbol("Base") || ctx.module->name == jl_symbol("Implementations")) { 
         //printf("Current function %s, module: %s\n", f->getName().str().c_str(), jl_symbol_name(ctx.module->name));
-        MDNode* MD = MDNode::get(jl_LLVMContext, MDString::get(jl_LLVMContext, "Base"));
+        MDNode* MD = MDNode::get(jl_LLVMContext, MDString::get(jl_LLVMContext, jl_symbol_name(ctx.module->name)));
         f->setMetadata("julia.module", MD);
-    }
+    //}
 
     if (jlrettype == (jl_value_t*)jl_bottom_type)
         f->setDoesNotReturn();

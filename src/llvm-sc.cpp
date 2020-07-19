@@ -107,11 +107,17 @@ struct SC : public FunctionPass {
         MDNode *MMD= F.getMetadata("julia.module");
         if (MMD) {
             auto module = cast<MDString>(MMD->getOperand(0))->getString();
-            //printf("Got module %s, function: %s\n", module, Name);
-            //printf("Got module %s\n", module);
-            // TODO: assert module == Base
-            return false;
+            if (module == "Base" || module == "Implementations" || module == "Sort" || module == "LinearAlgebra") { 
+                //printf("Got module %s, function: %s\n", module, Name);
+                //printf("Got module %s\n", module);
+                // TODO: assert module == Base
+                return false;
+            } else {
+                //printf("Got module %s: ", module);
+            }
         }
+        //StringRef Name = F.getName();
+        //outs() << Name << "\n";
         bool changed = false;
         std::set<BasicBlock *> BBs;
         for (auto &BB : F.getBasicBlockList()) {
@@ -139,7 +145,7 @@ struct SC : public FunctionPass {
                             if (S) {
                                 LLVM_DEBUG(dbgs() << "LSL: found " << S->getString() << "\n");
                                 if (S->getString().startswith("julia")) {
-                                    if (S->getString().equals("julia.noscloop") || S->getString().equals("julia.simdloop"))
+                                    if (S->getString().equals("julia.drfloop") || S->getString().equals("julia.simdloop"))
                                         skip_sc = true;
                                     continue;
                                 }
