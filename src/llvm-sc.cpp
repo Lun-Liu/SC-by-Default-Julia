@@ -19,8 +19,65 @@ using namespace llvm;
 #define DEBUG_TYPE "sc"
 #undef DEBUG
 
-static cl::opt<std::string> SkippedList("scskip_list", cl::desc("Specify a list of function name that will be treated as @nosc"), cl::value_desc("name;name;..."));
+static cl::opt<std::string> DRFFuncList("drf_func_list", cl::desc("Specify a list of function name that will be treated as @drf"), cl::value_desc("name;name;..."));
+static cl::opt<std::string> DRFModList("drf_mod_list", cl::desc("Specify a list of module name that will be treated as @drf"), cl::value_desc("name;name;..."));
+static cl::opt<bool> DRFSIMD("drf_simd", cl::desc("Treat @simd as @drf"));
 
+///\p inlist: a list of module name in "name;name;name;name..." format.
+static bool isDRFMod(MDNode* MD, std::string inlist) {
+    std::set<std::string> strset;
+    std::string delim = ";";
+    if (!inlist.empty()) {
+        std::string::size_type start = 0;
+        do {
+            size_t x = inlist.find(delim, start);
+            if (x == std::string::npos)
+                break;
+
+            strset.insert(inlist.substr(start, x-start));
+            start += delim.size();
+        }
+        while (true);
+
+        strset.insert(inlist.substr(start));
+    }
+
+    auto str = cast<MDString>(MD->getOperand(0))->getString();
+    for (auto str2 : strset) {
+        if (str == str2)
+            return true;
+    }
+
+    return false;
+}
+
+///\p inlist: a list of function name in "name;name;name;name..." format.
+static bool isDRFFunc(std::string funcname, std::string inlist) {
+    std::set<std::string> strset;
+    std::string delim = ";";
+    if (!inlist.empty()) {
+        std::string::size_type start = 0;
+        do {
+            size_t x = inlist.find(delim, start);
+            if (x == std::string::npos)
+                break;
+
+            strset.insert(inlist.substr(start, x-start));
+            start += delim.size();
+        }
+        while (true);
+
+        strset.insert(inlist.substr(start));
+    }
+
+    for (auto str2 : strset) {
+        if (funcname == str2)
+            return true;
+    }
+
+    return false;
+
+}
 static bool isTBAA(MDNode *TBAA, std::initializer_list<const char*> const strset)
 {
     if (!TBAA)
@@ -88,36 +145,21 @@ struct SC : public FunctionPass {
     SC() : FunctionPass(ID) {}
 
     bool runOnFunction(Function &F) override {
-        //StringRef Name = F.getName();
-        //std::pair<char *, bool> demangled = jl_demangle(Name.data());
-        //char *demangled_name = jl_demangle(Name.data()).first;
-        //char ch = ';';
-        //strncat(demangled_name, &ch, 1);
-        //if (strstr(SkippedList.c_str(), demangled_name) != NULL) {
-            //outs() << "Found name: " << demangled_name << "\n";
-            // Found in SCSkip list, do nothing
-            //return false;
-        //} 
-        //printf("name: %s, demangled: %s\n", Name.data(), demangled.first);
-        //Module *M = F.getParent();
-        //outs() << M->getModuleIdentifier() << "\n";
-        //if (SkippedList != "") {
-        //    outs() << "Got argument: " << SkippedList << "\n";
-        //}
+        // Check if the current module name is in drf_mod_list.
         MDNode *MMD= F.getMetadata("julia.module");
         if (MMD) {
-            auto module = cast<MDString>(MMD->getOperand(0))->getString();
-            if (module == "Base" || module == "Implementations" || module == "Sort" || module == "LinearAlgebra") { 
-                //printf("Got module %s, function: %s\n", module, Name);
-                //printf("Got module %s\n", module);
-                // TODO: assert module == Base
+            if (isDRFMod(MMD, DRFModList)) {
                 return false;
-            } else {
-                //printf("Got module %s: ", module);
             }
         }
-        //StringRef Name = F.getName();
-        //outs() << Name << "\n";
+
+        // Check if the current function name is in drf_func_list.
+        StringRef Name = F.getName();
+        std::string demangled_name(jl_demangle(Name.data()).first);
+        if (isDRFFunc(demangled_name, DRFFuncList)) {
+            return false;
+        }
+
         bool changed = false;
         std::set<BasicBlock *> BBs;
         for (auto &BB : F.getBasicBlockList()) {
@@ -145,7 +187,7 @@ struct SC : public FunctionPass {
                             if (S) {
                                 LLVM_DEBUG(dbgs() << "LSL: found " << S->getString() << "\n");
                                 if (S->getString().startswith("julia")) {
-                                    if (S->getString().equals("julia.drfloop") || S->getString().equals("julia.simdloop"))
+                                    if (S->getString().equals("julia.drfloop") || (DRFSIMD && S->getString().equals("julia.simdloop")))
                                         skip_sc = true;
                                     continue;
                                 }
