@@ -487,7 +487,7 @@ $(eval $(call LLVM_PATCH,llvm-8.0-D66657-codegen-degenerate)) # remove for 10.0
 $(eval $(call LLVM_PATCH,llvm-8.0-D71495-vectorize-freduce)) # remove for 10.0
 # Get rid of fence for SC experiments.
 #$(eval $(call LLVM_PATCH,llvm-noop-fence)) # remove for 10.0
-$(eval $(call LLVM_PATCH,llvm-atomic-expand-sc)) # remove for 10.0
+#$(eval $(call LLVM_PATCH,llvm-atomic-expand-sc)) # remove for 10.0
 
 endif # LLVM_VER 9.0
 

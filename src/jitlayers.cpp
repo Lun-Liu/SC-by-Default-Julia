@@ -145,6 +145,7 @@ void addOptimizationPasses(legacy::PassManagerBase *PM, int opt_level,
         PM->add(createLowerSimdLoopPass());        // Annotate loop marked with "loopinfo" as LLVM parallel loop
         if (dump_native)
             PM->add(createMultiVersioningPass());
+        PM->add(createSCExpandPass());
         return;
     }
     PM->add(createPropagateJuliaAddrspaces());
@@ -262,6 +263,7 @@ void addOptimizationPasses(legacy::PassManagerBase *PM, int opt_level,
         PM->add(createCFGSimplificationPass());
     }
     PM->add(createCombineMulAddPass());
+    PM->add(createSCExpandPass());
 }
 
 extern "C" JL_DLLEXPORT
