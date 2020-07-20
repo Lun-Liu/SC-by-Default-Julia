@@ -1,3 +1,57 @@
+This is work is based on v1.4.1 of the public Julia implementation on GitHub. The original README is kept at the end.
+
+## Building 
+The build process is similar to building the original Julia from source.
+
+First, make sure you have all the [required
+dependencies](https://github.com/JuliaLang/julia/blob/master/doc/build/build.md#required-build-tools-and-external-libraries) installed.
+
+Checkout `atomic-expand-volatile` branch that has the SC-by-Default Julia modifications by running:
+
+    git checkout atomic-expand-volatile
+
+Switch to use LLVM 9.0.1 by adding the following line to `Make.user` (or create the file with such line if the file does not exist)
+
+    LLVM_VER = 9.0.1
+
+***NOTE***: SC-by-Default Julia is being developed with LLVM 9.0.1. Other versions of LLVM may also work but they are not tested.
+
+Now run `make` to build the `julia` executable.
+
+Once it is built, you can run the `julia` executable after you enter your julia directory and run
+
+    ./julia
+
+You can read about the building process in this section from the original README: [Building Julia](https://github.com/Lun-Liu/julia-private#building-julia)
+
+
+## `@drf` Annotations
+SC-by-Default Julia provides Sequential Consistency for Julia programs it executes by default. For performance-sensitive regions of the code, programmers are allowed to use @drf annotations to restore the original Julia memory model semantics in those regions of the code.
+
+Currently, `@drf` annotations can be used in the following manners:
+
+1. Annotate a `for` loop with `@drf`. The object iterated over in a `@drf for` loop should be a one-dimensional range. The implementation mimics `@simd` so it has the same requirement for the loop structure as [`@simd` does](https://docs.julialang.org/en/v1/base/base/#Base.SimdLoop.@simd).
+
+Naturally, loops already marked as `@simd` are good candidates for `@drf`. To enable treating all loops marked as `@simd` as `@drf` without having to annotate them again, set the following LLVM argument by running:
+
+    export JULIA_LLVM_ARGS=-drf_simd
+
+2. Annotate a list of functions to have the original Julia memory model semantics. The list of function names is passed as an llvm argument, therefore to set the list of functions that will be treated as `@drf`, use:
+
+    export JULIA_LLVM_ARGS="-drf_func_list=funcname1;funcname2;funcname3..."
+
+3. Annotate a list of modules to have the original Julia memory model semantics, meaning all functions in the modules specified will be treated as `@drf`. The lise of module names is also passed as an llvm argument, and can be set using:
+    
+    export JULIA_LLVM_ARGS="-drf_mod_list=modname1;modname2;modname3..."
+
+The above usage of `@drf` can be mixed together, for example, setting JULIA\_LLVM\_ARGS as following when running `julia`:
+    
+    export JULIA_LLVM_ARGS="-drf_mod_list=Base;Sort;LinearAlgebra -drf_func_list=setindex  -drf_simd"
+
+will mark `Base` module, `Sort` module, `LinearAlgebra` module, and `setindex` function as `@drf`, and treating all `@simd for` loop as `@drf` too.
+
+==================================================================================================
+# The original Julia README
 <a name="logo"/>
 <div align="center">
 <a href="https://julialang.org/" target="_blank">
