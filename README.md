@@ -38,20 +38,24 @@ Naturally, loops already marked as `@simd` are good candidates for `@drf`. To en
 
 2. Annotate a list of functions to have the original Julia memory model semantics. The list of function names is passed as an llvm argument, therefore to set the list of functions that will be treated as `@drf`, use:
 
+```
     export JULIA_LLVM_ARGS="-drf_func_list=funcname1;funcname2;funcname3..."
+```
 
-3. Annotate a list of modules to have the original Julia memory model semantics, meaning all functions in the modules specified will be treated as `@drf`. The lise of module names is also passed as an llvm argument, and can be set using:
-    
+3. Annotate a list of modules to have the original Julia memory model semantics, meaning all functions in the modules specified will be treated as `@drf`. The list of module names is also passed as an llvm argument, and can be set using:
+
+```
     export JULIA_LLVM_ARGS="-drf_mod_list=modname1;modname2;modname3..."
+```
 
-The above usage of `@drf` can be mixed together, for example, setting JULIA\_LLVM\_ARGS as following when running `julia`:
+The above usage of `@drf` can be mixed together, for example, setting `JULIA_LLVM_ARGS` as following when running `julia`:
     
     export JULIA_LLVM_ARGS="-drf_mod_list=Base;Sort;LinearAlgebra -drf_func_list=setindex  -drf_simd"
 
-will mark `Base` module, `Sort` module, `LinearAlgebra` module, and `setindex` function as `@drf`, and treating all `@simd for` loop as `@drf` too.
+will mark `Base` module, `Sort` module, `LinearAlgebra` module, and `setindex` function as `@drf`, and treat all `@simd for` loop as `@drf` too.
 
 ==================================================================================================
-# The original Julia README
+# The Original Julia README
 <a name="logo"/>
 <div align="center">
 <a href="https://julialang.org/" target="_blank">
