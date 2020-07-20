@@ -926,15 +926,6 @@ function fill!(A::AbstractArray{T}, x) where T
     A
 end
 
-# for NOSC, overwrite the original one since now we can use @nosc annotation
-@noinline function fill!(dest::Array{T}, x) where T
-    xT = convert(T, x)
-    for i in eachindex(dest)
-        @inbounds dest[i] = xT
-    end
-    return dest
-end
-
 """
     copyto!(dest::AbstractArray, src) -> dest
 
