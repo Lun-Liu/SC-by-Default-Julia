@@ -44,9 +44,12 @@ struct SCExpand : public FunctionPass {
                     Type *ElTy = PTy->getElementType();
                     const DataLayout &DL = LI->getModule()->getDataLayout();
                     unsigned Size = DL.getTypeSizeInBits(ElTy);
-                    if (!ElTy->isIntegerTy() && !ElTy->isPointerTy() && !ElTy->isFloatingPointTy()
-                            || (Size < 8 || (Size & (Size - 1)))
-                            || LI->getAlignment() == 0) {
+                    if ((!ElTy->isIntegerTy() && !ElTy->isPointerTy() && !ElTy->isFloatingPointTy())
+                            || LI->getAlignment() == 0
+#if defined(_OS_DARWIN_)
+							|| LI->getAlignment() < Size
+#endif
+                            || (Size < 8 || (Size & (Size - 1)))){
                         IRBuilder<> builder(LI);
                         LI->setOrdering(AtomicOrdering::NotAtomic);
 
@@ -63,9 +66,12 @@ struct SCExpand : public FunctionPass {
                     Type *ElTy = PTy->getElementType();
                     const DataLayout &DL = SI->getModule()->getDataLayout();
                     unsigned Size = DL.getTypeSizeInBits(ElTy);
-                    if (!ElTy->isIntegerTy() && !ElTy->isPointerTy() && !ElTy->isFloatingPointTy()
-                            || (Size < 8 || (Size & (Size - 1)))
-                            || SI->getAlignment() == 0) {
+                    if ((!ElTy->isIntegerTy() && !ElTy->isPointerTy() && !ElTy->isFloatingPointTy())
+                            || SI->getAlignment() == 0
+#if defined(_OS_DARWIN_)
+							|| SI->getAlignment() < Size
+#endif
+                            || (Size < 8 || (Size & (Size - 1)))){
                         SI->setOrdering(AtomicOrdering::NotAtomic);
                         IRBuilder<> builder(SI);
                         FenceInst *release = new FenceInst(builder.getContext(), AtomicOrdering::Release, SyncScope::System);
