@@ -32,6 +32,17 @@ Currently, `@drf` annotations can be used in the following manners:
 
 1. Annotate a `for` loop with `@drf`. The object iterated over in a `@drf for` loop should be a one-dimensional range. The implementation mimics `@simd` so it has the same requirement for the loop structure as [`@simd` does](https://docs.julialang.org/en/v1/base/base/#Base.SimdLoop.@simd).
 
+Below is an example of using `@drf` for an implementation of `fill!`
+
+```
+  function fill!(dest::Array{T}, x) where T xT = convert(T, x)
+      @drf for i in eachindex(dest)
+          @inbounds dest[i] = xT
+      end
+      return dest
+  end 
+```
+
 Naturally, loops already marked as `@simd` are good candidates for `@drf`. To enable treating all loops marked as `@simd` as `@drf` without having to annotate them again, set the following LLVM argument by running:
 
     export JULIA_LLVM_ARGS=-drf_simd
