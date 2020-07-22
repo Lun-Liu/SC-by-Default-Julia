@@ -130,7 +130,7 @@ include("arraymath.jl")
 include("simdloop.jl")
 using .SimdLoop
 
-# SC loops
+# DRF loops
 include("drfloop.jl")
 using .DRFLoop
 

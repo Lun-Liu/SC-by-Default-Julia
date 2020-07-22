@@ -34,9 +34,9 @@ end
 check_body!(x::QuoteNode) = check_body!(x.value)
 check_body!(x) = true
 
-@inline nosc_index(r, i) = (@inbounds ret = r[i+firstindex(r)]; ret)
+@inline drf_index(r, i) = (@inbounds ret = r[i+firstindex(r)]; ret)
 
-# Compile Expr x in context of @nosc.
+# Compile Expr x in context of @drf.
 function compile(x)
     (isa(x, Expr) && x.head === :for) || throw(NoSCError("for loop expected"))
     length(x.args) == 2 || throw(NoSCError("1D for loop expected"))
@@ -53,10 +53,10 @@ function compile(x)
                 if zero($n) < $n
                     let $i = zero($n)
                         while $i < $n
-                            local $var = Base.nosc_index($r,$i)
+                            local $var = Base.drf_index($r,$i)
                             $(x.args[2])        # Body of loop
                             $i += 1
-                            $(Expr(:loopinfo, Symbol("julia.drfloop")))  # Mark loop as nosc loop
+                            $(Expr(:loopinfo, Symbol("julia.drfloop")))  # Mark loop as drf loop
                         end
                     end
                 end
@@ -67,15 +67,15 @@ function compile(x)
 end
 
 """
-    @nosc
+    @drf
 
 Annotate a `for` loop to allow the compiler to take extra liberties to allow loop re-ordering for no SC purposes
 
 !!! warning
     This feature is experimental and could change or disappear in future versions of Julia.
-    Incorrect use of the `@nosc` macro may cause unexpected results.
+    Incorrect use of the `@drf` macro may cause unexpected results.
 
-The object iterated over in a `@nosc for` loop should be a one-dimensional range.
+The object iterated over in a `@drf for` loop should be a one-dimensional range.
 By using `@simd`, you are asserting several properties of the loop:
 
 * It is safe to execute iterations in arbitrary or overlapping order, with special consideration for reduction variables.
@@ -93,7 +93,7 @@ By using `@simd`, you are asserting several properties of the loop:
 * There exists no loop-carried memory dependencies
 * No iteration ever waits on a previous iteration to make forward progress.
 """
-macro nosc(forloop)
+macro drf(forloop)
     esc(compile(forloop))
 end
 
