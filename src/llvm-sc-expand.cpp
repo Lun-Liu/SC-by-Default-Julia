@@ -9,6 +9,7 @@
 #include "llvm-version.h"
 #include "codegen_shared.h"
 #include "julia.h"
+#include "platform.h"
 using namespace llvm;
 
 #define DEBUG_TYPE "sc"
