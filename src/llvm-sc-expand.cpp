@@ -62,7 +62,8 @@ struct SCExpand : public FunctionPass {
                     } 
                 }
             } else if (SI) {
-                if (SI->getOrdering() == AtomicOrdering::SequentiallyConsistent) {
+                if (SI->getOrdering() == AtomicOrdering::SequentiallyConsistent
+                        || SI->getOrdering() == AtomicOrdering::Release) {
                     PointerType *PTy = dyn_cast<PointerType>(SI->getOperand(1)->getType());
                     Type *ElTy = PTy->getElementType();
                     const DataLayout &DL = SI->getModule()->getDataLayout();
@@ -73,12 +74,15 @@ struct SCExpand : public FunctionPass {
 							|| SI->getAlignment() < Size
 #endif
                             || (Size < 8 || (Size & (Size - 1)))){
+                        auto order = SI->getOrdering();
                         SI->setOrdering(AtomicOrdering::NotAtomic);
                         IRBuilder<> builder(SI);
                         FenceInst *release = new FenceInst(builder.getContext(), AtomicOrdering::Release, SyncScope::System);
                         release->insertBefore(SI);
-                        FenceInst *sc = new FenceInst(builder.getContext(), AtomicOrdering::SequentiallyConsistent, SyncScope::System);
-                        sc->insertAfter(SI);
+                        if (order == AtomicOrdering::SequentiallyConsistent) {
+                            FenceInst *sc = new FenceInst(builder.getContext(), AtomicOrdering::SequentiallyConsistent, SyncScope::System);
+                            sc->insertAfter(SI);
+                        }
                         SI->setVolatile(1);
                         changed = true;
                         continue;

@@ -211,7 +211,7 @@ struct SC : public FunctionPass {
                 if (I.getMetadata(LLVMContext::MD_invariant_load))
                     continue;
                 MDNode *TBAA = I.getMetadata(LLVMContext::MD_tbaa);
-                if (isTBAA(TBAA, {"jtbaa", "jtbaa_value", "jtbaa_data", "jtbaa_mutab", "jtbaa_arraybuf", "jtbaa_ptrarraybuf", "jtbaa_binding"})) {
+                if (isTBAA(TBAA, {"jtbaa", "jtbaa_value", "jtbaa_data", "jtbaa_mutab", "jtbaa_arraybuf", "jtbaa_ptrarraybuf", "jtbaa_binding"}) || isTBAA(TBAA, {"jtbaa_immut"}) && isa<StoreInst>(I)) {
                     if (isa<LoadInst>(I)) {
                         LoadInst &LI = cast<LoadInst>(I);
                         const DataLayout &DL = F.getParent()->getDataLayout();
@@ -226,7 +226,11 @@ struct SC : public FunctionPass {
                         if (SI.getPointerAddressSpace() == DL.getAllocaAddrSpace()) {
                             continue;
                         }
-                        SI.setOrdering(AtomicOrdering::SequentiallyConsistent);
+                        if (isTBAA(TBAA, {"jtbaa_immut"}) && !isReleaseOrStronger(SI.getOrdering())) {
+                            SI.setOrdering(AtomicOrdering::Release);
+                        } else {
+                            SI.setOrdering(AtomicOrdering::SequentiallyConsistent);
+                        }
                         changed = true;
                     }
                 }
